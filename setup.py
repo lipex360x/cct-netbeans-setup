@@ -45,7 +45,10 @@ def set_compile_on_save_false(props: Path) -> None:
     content = props.read_text()
     if "compile.on.save=false" in content:
         return
-    props.write_text(content.replace("compile.on.save=true", "compile.on.save=false"))
+    if "compile.on.save=true" in content:
+        props.write_text(content.replace("compile.on.save=true", "compile.on.save=false"))
+    else:
+        props.write_text(content.rstrip("\n") + "\ncompile.on.save=false\n")
 
 
 def add_file_references(props: Path, jar_names: list[str]) -> None:

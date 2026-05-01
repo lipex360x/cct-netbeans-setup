@@ -128,6 +128,12 @@ class TestSetCompileOnSaveFalse:
         assert "javac.classpath=" in content
         assert "javac.test.classpath=\\" in content
 
+    def test_adds_property_when_absent(self, tmp_path: Path) -> None:
+        props = tmp_path / "project.properties"
+        props.write_text("javac.classpath=\n")
+        set_compile_on_save_false(props)
+        assert "compile.on.save=false" in props.read_text()
+
 
 class TestAddFileReferences:
     def test_adds_reference_for_each_jar(self, props: Path) -> None:
