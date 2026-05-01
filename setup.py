@@ -202,11 +202,8 @@ _JUNITLAUNCHER_CLASS = (
 )
 
 _TASKDEF_BLOCK = (
-    f'<available classname="{_JUNITLAUNCHER_CLASS}"'
-    ' property="junitlauncher.available"/>\n'
     '<taskdef name="junitlauncher"\n'
-    f'         classname="{_JUNITLAUNCHER_CLASS}"\n'
-    '         unless="junitlauncher.available">\n'
+    f'         classname="{_JUNITLAUNCHER_CLASS}">\n'
     "    <classpath>\n"
     '        <fileset dir="${basedir}/lib/junit5">\n'
     '            <include name="ant-junitlauncher-*.jar"/>\n'

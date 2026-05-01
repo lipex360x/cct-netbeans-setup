@@ -242,11 +242,14 @@ class TestInjectBuildXml:
 
 
 class TestBuildOverride:
-    def test_contains_available_check_for_junitlauncher_class(self) -> None:
+    def test_contains_junitlauncher_taskdef(self) -> None:
         assert "junitlauncher.confined.JUnitLauncherTask" in _BUILD_OVERRIDE
 
-    def test_contains_taskdef_with_unless_condition(self) -> None:
-        assert 'unless="junitlauncher.available"' in _BUILD_OVERRIDE
+    def test_taskdef_has_no_unless_attribute(self) -> None:
+        assert 'unless="' not in _BUILD_OVERRIDE
+
+    def test_taskdef_has_no_available_element(self) -> None:
+        assert "<available" not in _BUILD_OVERRIDE
 
     def test_contains_ant_junitlauncher_jar_pattern(self) -> None:
         assert "ant-junitlauncher-*.jar" in _BUILD_OVERRIDE
