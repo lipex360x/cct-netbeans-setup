@@ -1,0 +1,107 @@
+project:
+  name: cct-netbeans-setup
+  github: lipex360x/cct-netbeans-setup
+  purpose: >
+    Shared configuration repository for Java projects at CCT.
+    Provides a zero-clone CLI that configures NetBeans Ant projects
+    (libraries, test runners, build overrides) by running a single
+    uv command — no git clone, no manual downloads.
+
+execution:
+  command: uv run "https://raw.githubusercontent.com/lipex360x/cct-netbeans-setup/main/setup.py"
+  prerequisites:
+    - name: uv
+      install_windows: irm https://astral.sh/uv/install.ps1 | iex
+      install_mac_linux: curl -LsSf https://astral.sh/uv/install.sh | sh
+  note: >
+    uv reads the PEP 723 inline metadata header in setup.py, installs
+    rich and requests into an isolated environment, and runs the script.
+    No virtualenv management required from the user.
+
+stack:
+  runtime: Python 3.11+
+  package_manager: uv
+  dependencies:
+    - rich>=13       # terminal UI (panels, progress bars, prompts)
+    - requests>=2    # HTTP downloads from GitHub
+  testing: pytest
+  delivery: single-file PEP 723 script (setup.py)
+
+architecture:
+  setup.py:
+    role: entry point and all business logic
+    layers:
+      - validation     # checks the NetBeans project structure
+      - file_ops       # edits project.properties and build.xml
+      - network        # fetches JAR list and downloads from GitHub
+      - cli            # rich-powered interactive menu (to be built)
+    testability: >
+      All business logic functions are pure file-in / file-out.
+      Network calls are isolated in fetch_jar_names() and download_jars()
+      and are mocked in tests. No side effects at import time.
+
+  tests/test_setup.py:
+    framework: pytest
+    coverage_target: 100%
+    approach: >
+      tmp_path fixtures for isolated file operations.
+      unittest.mock for all HTTP calls — no real network in tests.
+
+assets:
+  libs/tests/junit5/jar/:
+    description: 9 JUnit 5 JARs served as raw GitHub files
+    role: downloaded by the script into <project>/lib/junit5/ at setup time
+  libs/tests/junit5/junit5-build-override.xml:
+    description: Ant targets that replace the default JUnit 4 test runner
+    role: injected into the project build.xml between cct-netbeans-setup markers
+  templates/:
+    description: NetBeans code templates and settings package
+    role: imported manually once per machine (global NetBeans setup)
+
+features:
+  current:
+    junit5_install:
+      trigger: menu option [1]
+      steps:
+        - validate that the target path is a NetBeans Ant project
+        - fetch JAR list from GitHub API
+        - download JARs to <project>/lib/junit5/ (skips existing files)
+        - add file.reference.* entries to project.properties
+        - append JAR refs to javac.test.classpath and run.test.classpath
+        - set compile.on.save=false
+        - inject Ant targets into build.xml (wrapped in idempotency markers)
+      idempotent: true
+
+    junit5_uninstall:
+      trigger: menu option [2] (shown only when JUnit 5 is detected)
+      steps:
+        - remove lib/junit5/ directory from the project
+        - remove file.reference.* entries that point to lib/junit5/
+        - revert javac.test.classpath and run.test.classpath to original state
+        - remove injected Ant targets from build.xml (between markers)
+      note: compile.on.save is left as-is during uninstall
+
+  planned:
+    - mysql_connector_install
+    - netbeans_templates_guide
+
+design_decisions:
+  relative_jar_paths: >
+    JARs are downloaded into <project>/lib/junit5/ and referenced with
+    relative paths in project.properties. This makes projects portable
+    across machines without any path reconfiguration.
+
+  string_based_xml_editing: >
+    build.xml is edited with string operations (marker-based insert/remove),
+    not xml.etree.ElementTree. ElementTree re-serializes the entire document
+    and loses comments and formatting. Marker-based editing is safer and
+    fully reversible.
+
+  single_file_delivery: >
+    Everything lives in setup.py to enable uv run <url> without cloning.
+    Tests import setup.py directly via sys.path injection in conftest.py.
+
+  idempotency_markers: >
+    The XML injection uses HTML comment markers (cct-netbeans-setup:begin/end)
+    so the script can detect an existing installation and skip re-injection,
+    and the uninstall can remove exactly what was added without guessing.

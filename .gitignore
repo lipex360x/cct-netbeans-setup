@@ -1,22 +1,26 @@
-# Python
 __pycache__/
 *.py[cod]
 *.pyo
+*.egg-info/
 .venv/
-.ruff_cache/
-.mypy_cache/
+venv/
+dist/
+build/
+
 .pytest_cache/
 .coverage
 htmlcov/
 
-# uv
+.mypy_cache/
+.ruff_cache/
+
 uv.lock
 
-# OS
 .DS_Store
 Thumbs.db
 
-# Editor
 .idea/
 .vscode/
 *.swp
+
+dev-quality

@@ -1,0 +1,46 @@
+<!-- Cole os 3 targets abaixo no seu build.xml, logo após a linha:
+     <import file="nbproject/build-impl.xml"/>
+
+     Por que isso é necessário?
+     O NetBeans usa por padrão o runner do JUnit 4 para executar testes.
+     Estes targets substituem esse comportamento e usam o junitlauncher,
+     que é o runner correto para JUnit 5. -->
+
+<target depends="init,compile-test,-pre-test-run" if="have.tests" name="-do-test-run">
+    <junitlauncher haltOnFailure="false" failureProperty="tests.failed" printSummary="true">
+        <classpath>
+            <pathelement path="${run.test.classpath}:${build.test.classes.dir}"/>
+        </classpath>
+        <testclasses outputdir="${build.test.results.dir}">
+            <fileset dir="${build.test.classes.dir}">
+                <include name="**/*Test.class"/>
+            </fileset>
+            <listener type="legacy-xml"/>
+            <listener type="legacy-plain" sendSysOut="true" sendSysErr="true"/>
+        </testclasses>
+    </junitlauncher>
+</target>
+
+<target depends="init,compile-test-single,-pre-test-run-single" if="have.tests" name="-do-test-run-single">
+    <junitlauncher haltOnFailure="false" failureProperty="tests.failed" printSummary="true">
+        <classpath>
+            <pathelement path="${run.test.classpath}:${build.test.classes.dir}"/>
+        </classpath>
+        <test name="${test.class}" outputdir="${build.test.results.dir}">
+            <listener type="legacy-xml"/>
+            <listener type="legacy-plain" sendSysOut="true" sendSysErr="true"/>
+        </test>
+    </junitlauncher>
+</target>
+
+<target depends="init,compile-test-single,-pre-test-run-single" if="have.tests" name="-do-test-run-single-method">
+    <junitlauncher haltOnFailure="false" failureProperty="tests.failed" printSummary="true">
+        <classpath>
+            <pathelement path="${run.test.classpath}:${build.test.classes.dir}"/>
+        </classpath>
+        <test name="${test.class}" methods="${test.method}" outputdir="${build.test.results.dir}">
+            <listener type="legacy-xml"/>
+            <listener type="legacy-plain" sendSysOut="true" sendSysErr="true"/>
+        </test>
+    </junitlauncher>
+</target>
