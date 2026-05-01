@@ -487,6 +487,18 @@ class TestMain:
             main()
         mock_uninstall.assert_not_called()
 
+    def test_handles_permission_error_gracefully(self, project: Path) -> None:
+        with (
+            patch("setup.Console") as mock_console_class,
+            patch("setup.Panel"),
+            patch("setup.Prompt") as mock_prompt,
+            patch("setup.run_uninstall", side_effect=PermissionError("file in use")),
+            patch("setup.is_junit5_configured", return_value=True),
+        ):
+            mock_prompt.ask.side_effect = [str(project), "2"]
+            main()
+        mock_console_class.return_value.print.assert_called()
+
 
 class TestCleanPath:
     def test_strips_single_quotes(self) -> None:

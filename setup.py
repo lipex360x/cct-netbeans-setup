@@ -331,6 +331,8 @@ def main() -> None:
             console.print("\n  [green]✓[/green]  JUnit 5 installed.\n")
     except KeyboardInterrupt:
         console.print("\n[dim]Cancelled.[/dim]")
+    except PermissionError:
+        console.print("\n  [red]✗[/red]  Close NetBeans before running this operation.\n")
 
 
 if __name__ == "__main__":
