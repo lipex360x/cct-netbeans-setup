@@ -478,6 +478,12 @@ class TestCleanPath:
     def test_plain_path_unchanged(self) -> None:
         assert clean_path("/some/path") == Path("/some/path")
 
+    def test_dot_resolves_to_cwd(self) -> None:
+        assert clean_path(".") == Path.cwd()
+
+    def test_tilde_expands_home(self) -> None:
+        assert clean_path("~") == Path.home()
+
 
 class TestRunInstall:
     def test_raises_for_invalid_project(self, tmp_path: Path) -> None:

@@ -245,7 +245,7 @@ _BUILD_OVERRIDE = (
 
 
 def clean_path(raw: str) -> Path:
-    return Path(raw.strip().strip("'\"").rstrip("/\\"))
+    return Path(raw.strip().strip("'\"").rstrip("/\\")).expanduser().resolve()
 
 
 def run_install(project: Path) -> None:
@@ -271,7 +271,8 @@ def main() -> None:
     console = Console()
     console.print(Panel("[bold]NetBeans — CCT Setup[/bold]", expand=False))
 
-    raw = Prompt.ask("\nNetBeans project path")
+    cwd = Path.cwd()
+    raw = Prompt.ask(f"\nNetBeans project path [dim](. = {cwd})[/dim]")
     project = clean_path(raw)
 
     try:
