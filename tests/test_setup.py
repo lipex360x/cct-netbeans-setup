@@ -9,15 +9,19 @@ from setup import (
     MARKER_BEGIN,
     MARKER_END,
     add_file_references,
+    clean_path,
     download_jars,
     fetch_jar_names,
     inject_build_xml,
     is_junit5_configured,
+    main,
     modify_classpath,
     remove_build_xml_override,
     remove_file_references,
     remove_jar_directory,
     revert_classpath,
+    run_install,
+    run_uninstall,
     set_compile_on_save_false,
     validate_netbeans_project,
 )
@@ -374,3 +378,158 @@ class TestDownloadJars:
 
         called_urls = [call.args[0] for call in mock_get.call_args_list]
         assert not any(JAR_NAMES[0] in url for url in called_urls)
+
+
+class TestMain:
+    def test_handles_invalid_project_gracefully(self, tmp_path: Path) -> None:
+        with (
+            patch("setup.Console") as mock_console_class,
+            patch("setup.Panel"),
+            patch("setup.Prompt") as mock_prompt,
+        ):
+            mock_prompt.ask.return_value = str(tmp_path)
+            main()
+        mock_console_class.return_value.print.assert_called()
+
+    def test_calls_run_install_for_option_1(self, project: Path) -> None:
+        with (
+            patch("setup.Console"),
+            patch("setup.Panel"),
+            patch("setup.Prompt") as mock_prompt,
+            patch("setup.run_install") as mock_install,
+            patch("setup.is_junit5_configured", return_value=False),
+        ):
+            mock_prompt.ask.side_effect = [str(project), "1"]
+            main()
+        mock_install.assert_called_once_with(project)
+
+    def test_calls_run_uninstall_for_option_2(self, project: Path) -> None:
+        with (
+            patch("setup.Console"),
+            patch("setup.Panel"),
+            patch("setup.Prompt") as mock_prompt,
+            patch("setup.run_uninstall") as mock_uninstall,
+            patch("setup.is_junit5_configured", return_value=True),
+        ):
+            mock_prompt.ask.side_effect = [str(project), "2"]
+            main()
+        mock_uninstall.assert_called_once_with(project)
+
+    def test_quits_without_install_on_q(self, project: Path) -> None:
+        with (
+            patch("setup.Console"),
+            patch("setup.Panel"),
+            patch("setup.Prompt") as mock_prompt,
+            patch("setup.run_install") as mock_install,
+            patch("setup.is_junit5_configured", return_value=False),
+        ):
+            mock_prompt.ask.side_effect = [str(project), "q"]
+            main()
+        mock_install.assert_not_called()
+
+    def test_quits_without_uninstall_on_q(self, project: Path) -> None:
+        with (
+            patch("setup.Console"),
+            patch("setup.Panel"),
+            patch("setup.Prompt") as mock_prompt,
+            patch("setup.run_uninstall") as mock_uninstall,
+            patch("setup.is_junit5_configured", return_value=True),
+        ):
+            mock_prompt.ask.side_effect = [str(project), "q"]
+            main()
+        mock_uninstall.assert_not_called()
+
+
+class TestCleanPath:
+    def test_strips_single_quotes(self) -> None:
+        assert clean_path("'/some/path'") == Path("/some/path")
+
+    def test_strips_double_quotes(self) -> None:
+        assert clean_path('"/some/path"') == Path("/some/path")
+
+    def test_strips_trailing_slash(self) -> None:
+        assert clean_path("/some/path/") == Path("/some/path")
+
+    def test_strips_whitespace(self) -> None:
+        assert clean_path("  /some/path  ") == Path("/some/path")
+
+    def test_returns_path_object(self) -> None:
+        assert isinstance(clean_path("/some/path"), Path)
+
+    def test_plain_path_unchanged(self) -> None:
+        assert clean_path("/some/path") == Path("/some/path")
+
+
+class TestRunInstall:
+    def test_raises_for_invalid_project(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            run_install(tmp_path)
+
+    def test_sets_compile_on_save_false(self, project: Path) -> None:
+        with patch("setup.fetch_jar_names", return_value=JAR_NAMES), patch("setup.download_jars"):
+            run_install(project)
+        assert "compile.on.save=false" in (project / "nbproject" / "project.properties").read_text()
+
+    def test_adds_file_references(self, project: Path) -> None:
+        with patch("setup.fetch_jar_names", return_value=JAR_NAMES), patch("setup.download_jars"):
+            run_install(project)
+        content = (project / "nbproject" / "project.properties").read_text()
+        assert "file.reference.junit-jupiter-api-5.10.3.jar" in content
+
+    def test_modifies_classpath(self, project: Path) -> None:
+        with patch("setup.fetch_jar_names", return_value=JAR_NAMES), patch("setup.download_jars"):
+            run_install(project)
+        content = (project / "nbproject" / "project.properties").read_text()
+        assert "${file.reference.junit-jupiter-api-5.10.3.jar}" in content
+
+    def test_injects_build_xml(self, project: Path) -> None:
+        with patch("setup.fetch_jar_names", return_value=JAR_NAMES), patch("setup.download_jars"):
+            run_install(project)
+        assert MARKER_BEGIN in (project / "build.xml").read_text()
+
+    def test_downloads_jars_to_correct_path(self, project: Path) -> None:
+        with (
+            patch("setup.fetch_jar_names", return_value=JAR_NAMES),
+            patch("setup.download_jars") as mock_download,
+        ):
+            run_install(project)
+        mock_download.assert_called_once_with(project / "lib" / "junit5", JAR_NAMES)
+
+    def test_idempotent(self, project: Path) -> None:
+        with patch("setup.fetch_jar_names", return_value=JAR_NAMES), patch("setup.download_jars"):
+            run_install(project)
+            run_install(project)
+        content = (project / "nbproject" / "project.properties").read_text()
+        assert content.count("file.reference.junit-jupiter-api-5.10.3.jar=lib/junit5/") == 1
+
+
+class TestRunUninstall:
+    def test_removes_jar_directory(self, project: Path) -> None:
+        (project / "lib" / "junit5").mkdir(parents=True)
+        run_uninstall(project)
+        assert not (project / "lib" / "junit5").exists()
+
+    def test_removes_file_references(self, project: Path) -> None:
+        props = project / "nbproject" / "project.properties"
+        add_file_references(props, JAR_NAMES)
+        run_uninstall(project)
+        assert "file.reference.junit-jupiter-api-5.10.3.jar" not in props.read_text()
+
+    def test_reverts_classpath(self, project: Path) -> None:
+        props = project / "nbproject" / "project.properties"
+        modify_classpath(props, JAR_NAMES)
+        run_uninstall(project)
+        assert "${file.reference.junit-jupiter-api-5.10.3.jar}" not in props.read_text()
+
+    def test_removes_build_xml_markers(self, project: Path) -> None:
+        inject_build_xml(project / "build.xml", OVERRIDE_CONTENT)
+        run_uninstall(project)
+        assert MARKER_BEGIN not in (project / "build.xml").read_text()
+
+    def test_full_install_uninstall_cycle(self, project: Path) -> None:
+        with patch("setup.fetch_jar_names", return_value=JAR_NAMES), patch("setup.download_jars"):
+            run_install(project)
+        run_uninstall(project)
+        props = (project / "nbproject" / "project.properties").read_text()
+        assert "file.reference.junit-jupiter-api-5.10.3.jar" not in props
+        assert MARKER_BEGIN not in (project / "build.xml").read_text()

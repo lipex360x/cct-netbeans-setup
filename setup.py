@@ -9,6 +9,9 @@ import shutil
 from pathlib import Path
 
 import requests
+from rich.console import Console
+from rich.panel import Panel
+from rich.prompt import Prompt
 
 MARKER_BEGIN = "<!-- cct-netbeans-setup:begin -->"
 MARKER_END = "<!-- cct-netbeans-setup:end -->"
@@ -185,5 +188,110 @@ def download_jars(destination: Path, jar_names: list[str]) -> None:
         target.write_bytes(response.content)
 
 
+_DEPENDS_SINGLE = "init,compile-test-single,-pre-test-run-single"
+
+_BUILD_OVERRIDE = (
+    """\
+<target depends="init,compile-test,-pre-test-run" if="have.tests" name="-do-test-run">
+    <junitlauncher haltOnFailure="false" failureProperty="tests.failed" printSummary="true">
+        <classpath>
+            <pathelement path="${run.test.classpath}:${build.test.classes.dir}"/>
+        </classpath>
+        <testclasses outputdir="${build.test.results.dir}">
+            <fileset dir="${build.test.classes.dir}">
+                <include name="**/*Test.class"/>
+            </fileset>
+            <listener type="legacy-xml"/>
+            <listener type="legacy-plain" sendSysOut="true" sendSysErr="true"/>
+        </testclasses>
+    </junitlauncher>
+</target>
+
+"""
+    + f'<target depends="{_DEPENDS_SINGLE}" if="have.tests" name="-do-test-run-single">\n'
+    + """\
+    <junitlauncher haltOnFailure="false" failureProperty="tests.failed" printSummary="true">
+        <classpath>
+            <pathelement path="${run.test.classpath}:${build.test.classes.dir}"/>
+        </classpath>
+        <test name="${test.class}" outputdir="${build.test.results.dir}">
+            <listener type="legacy-xml"/>
+            <listener type="legacy-plain" sendSysOut="true" sendSysErr="true"/>
+        </test>
+    </junitlauncher>
+</target>
+
+"""
+    + f'<target depends="{_DEPENDS_SINGLE}" if="have.tests" name="-do-test-run-single-method">\n'
+    + """\
+    <junitlauncher haltOnFailure="false" failureProperty="tests.failed" printSummary="true">
+        <classpath>
+            <pathelement path="${run.test.classpath}:${build.test.classes.dir}"/>
+        </classpath>
+        <test name="${test.class}" methods="${test.method}" outputdir="${build.test.results.dir}">
+            <listener type="legacy-xml"/>
+            <listener type="legacy-plain" sendSysOut="true" sendSysErr="true"/>
+        </test>
+    </junitlauncher>
+</target>"""
+)
+
+
+def clean_path(raw: str) -> Path:
+    return Path(raw.strip().strip("'\"").rstrip("/\\"))
+
+
+def run_install(project: Path) -> None:
+    validate_netbeans_project(project)
+    jar_names = fetch_jar_names()
+    download_jars(project / "lib" / "junit5", jar_names)
+    props = project / "nbproject" / "project.properties"
+    set_compile_on_save_false(props)
+    add_file_references(props, jar_names)
+    modify_classpath(props, jar_names)
+    inject_build_xml(project / "build.xml", _BUILD_OVERRIDE)
+
+
+def run_uninstall(project: Path) -> None:
+    props = project / "nbproject" / "project.properties"
+    remove_jar_directory(project)
+    remove_file_references(props)
+    revert_classpath(props)
+    remove_build_xml_override(project / "build.xml")
+
+
+def main() -> None:
+    console = Console()
+    console.print(Panel("[bold]NetBeans — CCT Setup[/bold]", expand=False))
+
+    raw = Prompt.ask("\nNetBeans project path")
+    project = clean_path(raw)
+
+    try:
+        validate_netbeans_project(project)
+    except ValueError as error:
+        console.print(f"[red]✗[/red] {error}")
+        return
+
+    configured = is_junit5_configured(project)
+    status = "[green]installed[/green]" if configured else "[yellow]not installed[/yellow]"
+    console.print(f"\n  {project.name}  —  JUnit 5: {status}\n")
+
+    if configured:
+        choice = Prompt.ask("  [2] Uninstall JUnit 5   [q] Quit\n\nChoice", choices=["2", "q"])
+        if choice == "q":
+            return
+        with console.status("Uninstalling JUnit 5..."):
+            run_uninstall(project)
+        console.print("[green]✓[/green] JUnit 5 uninstalled.")
+    else:
+        choice = Prompt.ask("  [1] Install JUnit 5   [q] Quit\n\nChoice", choices=["1", "q"])
+        if choice == "q":
+            return
+        with console.status("Installing JUnit 5..."):
+            run_install(project)
+        console.print("[green]✓[/green] JUnit 5 installed.")
+
+
 if __name__ == "__main__":
-    pass
+    main()
