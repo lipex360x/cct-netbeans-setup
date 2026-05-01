@@ -270,35 +270,34 @@ def run_uninstall(project: Path) -> None:
 def main() -> None:
     console = Console()
     console.print(Panel("[bold]NetBeans — CCT Setup[/bold]", expand=False))
-
-    cwd = Path.cwd()
-    raw = Prompt.ask(f"\nNetBeans project path [dim](. = {cwd})[/dim]")
-    project = clean_path(raw)
-
     try:
-        validate_netbeans_project(project)
-    except ValueError as error:
-        console.print(f"[red]✗[/red] {error}")
-        return
-
-    configured = is_junit5_configured(project)
-    status = "[green]installed[/green]" if configured else "[yellow]not installed[/yellow]"
-    console.print(f"\n  {project.name}  —  JUnit 5: {status}\n")
-
-    if configured:
-        choice = Prompt.ask("  [2] Uninstall JUnit 5   [q] Quit\n\nChoice", choices=["2", "q"])
-        if choice == "q":
+        cwd = Path.cwd()
+        raw = Prompt.ask(f"\nNetBeans project path [dim](. = {cwd})[/dim]")
+        project = clean_path(raw)
+        try:
+            validate_netbeans_project(project)
+        except ValueError as error:
+            console.print(f"[red]✗[/red] {error}")
             return
-        with console.status("Uninstalling JUnit 5..."):
-            run_uninstall(project)
-        console.print("[green]✓[/green] JUnit 5 uninstalled.")
-    else:
-        choice = Prompt.ask("  [1] Install JUnit 5   [q] Quit\n\nChoice", choices=["1", "q"])
-        if choice == "q":
-            return
-        with console.status("Installing JUnit 5..."):
-            run_install(project)
-        console.print("[green]✓[/green] JUnit 5 installed.")
+        configured = is_junit5_configured(project)
+        status = "[green]installed[/green]" if configured else "[yellow]not installed[/yellow]"
+        console.print(f"\n  {project.name}  —  JUnit 5: {status}\n")
+        if configured:
+            choice = Prompt.ask("  [2] Uninstall JUnit 5   [q] Quit\n\nChoice", choices=["2", "q"])
+            if choice == "q":
+                return
+            with console.status("Uninstalling JUnit 5..."):
+                run_uninstall(project)
+            console.print("[green]✓[/green] JUnit 5 uninstalled.")
+        else:
+            choice = Prompt.ask("  [1] Install JUnit 5   [q] Quit\n\nChoice", choices=["1", "q"])
+            if choice == "q":
+                return
+            with console.status("Installing JUnit 5..."):
+                run_install(project)
+            console.print("[green]✓[/green] JUnit 5 installed.")
+    except KeyboardInterrupt:
+        console.print("\n[dim]Cancelled.[/dim]")
 
 
 if __name__ == "__main__":

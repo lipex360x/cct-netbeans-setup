@@ -400,6 +400,15 @@ class TestDownloadJars:
 
 
 class TestMain:
+    def test_handles_keyboard_interrupt_gracefully(self) -> None:
+        with (
+            patch("setup.Console"),
+            patch("setup.Panel"),
+            patch("setup.Prompt") as mock_prompt,
+        ):
+            mock_prompt.ask.side_effect = KeyboardInterrupt
+            main()
+
     def test_handles_invalid_project_gracefully(self, tmp_path: Path) -> None:
         with (
             patch("setup.Console") as mock_console_class,
