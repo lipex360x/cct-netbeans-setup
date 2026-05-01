@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from setup import (
+    _BUILD_OVERRIDE,
     MARKER_BEGIN,
     MARKER_END,
     add_file_references,
@@ -238,6 +239,22 @@ class TestInjectBuildXml:
         before = build_xml.read_text()
         inject_build_xml(build_xml, OVERRIDE_CONTENT)
         assert build_xml.read_text() == before
+
+
+class TestBuildOverride:
+    def test_contains_available_check_for_junitlauncher_class(self) -> None:
+        assert "junitlauncher.confined.JUnitLauncherTask" in _BUILD_OVERRIDE
+
+    def test_contains_taskdef_with_unless_condition(self) -> None:
+        assert 'unless="junitlauncher.available"' in _BUILD_OVERRIDE
+
+    def test_contains_ant_junitlauncher_jar_pattern(self) -> None:
+        assert "ant-junitlauncher-*.jar" in _BUILD_OVERRIDE
+
+    def test_taskdef_appears_before_targets(self) -> None:
+        taskdef_pos = _BUILD_OVERRIDE.index("<taskdef")
+        target_pos = _BUILD_OVERRIDE.index("<target")
+        assert taskdef_pos < target_pos
 
 
 class TestRemoveFileReferences:

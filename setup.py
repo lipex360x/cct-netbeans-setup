@@ -197,8 +197,27 @@ def download_jars(destination: Path, jar_names: list[str]) -> None:
 
 _DEPENDS_SINGLE = "init,compile-test-single,-pre-test-run-single"
 
+_JUNITLAUNCHER_CLASS = (
+    "org.apache.tools.ant.taskdefs.optional.junitlauncher.confined.JUnitLauncherTask"
+)
+
+_TASKDEF_BLOCK = (
+    f'<available classname="{_JUNITLAUNCHER_CLASS}"'
+    ' property="junitlauncher.available"/>\n'
+    '<taskdef name="junitlauncher"\n'
+    f'         classname="{_JUNITLAUNCHER_CLASS}"\n'
+    '         unless="junitlauncher.available">\n'
+    "    <classpath>\n"
+    '        <fileset dir="${basedir}/lib/junit5">\n'
+    '            <include name="ant-junitlauncher-*.jar"/>\n'
+    "        </fileset>\n"
+    "    </classpath>\n"
+    "</taskdef>\n\n"
+)
+
 _BUILD_OVERRIDE = (
-    """\
+    _TASKDEF_BLOCK
+    + """\
 <target depends="init,compile-test,-pre-test-run" if="have.tests" name="-do-test-run">
     <junitlauncher haltOnFailure="false" failureProperty="tests.failed" printSummary="true">
         <classpath>
