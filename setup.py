@@ -42,13 +42,17 @@ def is_junit5_configured(path: Path) -> bool:
 
 
 def set_compile_on_save_false(props: Path) -> None:
-    content = props.read_text()
-    if "compile.on.save=false" in content:
-        return
-    if "compile.on.save=true" in content:
-        props.write_text(content.replace("compile.on.save=true", "compile.on.save=false"))
-    else:
-        props.write_text(content.rstrip("\n") + "\ncompile.on.save=false\n")
+    private = props.parent / "private" / "private.properties"
+    for target in [props, private]:
+        if not target.is_file():
+            continue
+        content = target.read_text()
+        if "compile.on.save=false" in content:
+            continue
+        if "compile.on.save=true" in content:
+            target.write_text(content.replace("compile.on.save=true", "compile.on.save=false"))
+        else:
+            target.write_text(content.rstrip("\n") + "\ncompile.on.save=false\n")
 
 
 def add_file_references(props: Path, jar_names: list[str]) -> None:

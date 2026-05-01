@@ -134,6 +134,19 @@ class TestSetCompileOnSaveFalse:
         set_compile_on_save_false(props)
         assert "compile.on.save=false" in props.read_text()
 
+    def test_also_updates_private_properties_when_present(self, props: Path) -> None:
+        private_dir = props.parent / "private"
+        private_dir.mkdir()
+        private = private_dir / "private.properties"
+        private.write_text("compile.on.save=true\nuser.properties.file=/some/path\n")
+        set_compile_on_save_false(props)
+        assert "compile.on.save=false" in private.read_text()
+        assert "compile.on.save=true" not in private.read_text()
+
+    def test_skips_private_properties_when_absent(self, props: Path) -> None:
+        set_compile_on_save_false(props)
+        assert "compile.on.save=false" in props.read_text()
+
 
 class TestAddFileReferences:
     def test_adds_reference_for_each_jar(self, props: Path) -> None:
