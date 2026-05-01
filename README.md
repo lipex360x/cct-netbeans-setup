@@ -25,8 +25,15 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 Run from any terminal — no clone required:
 
+**With uv (recommended):**
 ```bash
 uv run "https://raw.githubusercontent.com/lipex360x/cct-netbeans-setup/main/setup.py"
+```
+
+**With Python only (if uv is not installed):**
+```bash
+pip install rich requests
+curl -s "https://raw.githubusercontent.com/lipex360x/cct-netbeans-setup/main/setup.py" | python -
 ```
 
 The script downloads everything it needs and walks you through the options interactively.
