@@ -227,6 +227,6 @@ public class DatabaseConnection {
 ```
 
 > [!TIP]
-> The `mysql-connector-j.jar` is installed automatically by the setup script (option **[1] JUnit 5 + MySQL**). Make sure it is listed in your project's **Libraries** before compiling.
+> The `mysql-connector-j.jar` is installed automatically by the setup script (option **[1] MySQL Database**). Make sure it is listed in your project's **Libraries** before compiling.
 
 <div align="right"><a href="#netbeans--cct-setup">↑ Back to top</a></div>

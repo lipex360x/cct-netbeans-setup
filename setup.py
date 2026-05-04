@@ -371,10 +371,6 @@ def remove_gitignore(project: Path) -> None:
         gitignore.unlink()
 
 
-def clean_path(raw: str) -> Path:
-    return Path(raw.strip().strip("'\"").rstrip("/\\")).expanduser().resolve()
-
-
 def run_install(project: Path) -> None:
     validate_netbeans_project(project)
     jar_names = fetch_jar_names()
@@ -428,14 +424,6 @@ def _print_section(console: Console, heading: str = "", description: str = "") -
     )
 
 
-def _ask_project_path() -> Path | None:
-    cwd = Path.cwd()
-    raw = questionary.text(f"NetBeans project path (. = {cwd}):", style=_STYLE).ask()
-    if raw is None:
-        return None
-    return clean_path(raw)
-
-
 def _nav_choice() -> str:
     result = questionary.select(
         "",
@@ -450,9 +438,7 @@ def _nav_choice() -> str:
 
 def _database_flow(console: Console, title: str = "", description: str = "") -> str:
     _print_section(console, title, description)
-    project = _ask_project_path()
-    if project is None:
-        return "quit"
+    project = Path.cwd()
     try:
         validate_netbeans_project(project)
     except ValueError as error:
@@ -462,7 +448,7 @@ def _database_flow(console: Console, title: str = "", description: str = "") -> 
     status_text = "[green]● installed[/green]" if configured else "[yellow]○ not installed[/yellow]"
     console.print(
         Panel(
-            f"\n  [bold]MySQL Connector[/bold]   {status_text}\n",
+            f"  [dim]{project}[/dim]\n  [bold]MySQL Connector[/bold]   {status_text}",
             title=f"[bold cyan]{project.name}[/bold cyan]",
             border_style="cyan",
             title_align="left",
@@ -498,9 +484,7 @@ def _database_flow(console: Console, title: str = "", description: str = "") -> 
 
 def _junit5_flow(console: Console, title: str = "", description: str = "") -> str:
     _print_section(console, title, description)
-    project = _ask_project_path()
-    if project is None:
-        return "quit"
+    project = Path.cwd()
     try:
         validate_netbeans_project(project)
     except ValueError as error:
@@ -510,7 +494,7 @@ def _junit5_flow(console: Console, title: str = "", description: str = "") -> st
     status_text = "[green]● installed[/green]" if configured else "[yellow]○ not installed[/yellow]"
     console.print(
         Panel(
-            f"\n  [bold]JUnit 5[/bold]   {status_text}\n",
+            f"  [dim]{project}[/dim]\n  [bold]JUnit 5[/bold]   {status_text}",
             title=f"[bold cyan]{project.name}[/bold cyan]",
             border_style="cyan",
             title_align="left",
@@ -546,14 +530,12 @@ def _junit5_flow(console: Console, title: str = "", description: str = "") -> st
 
 def _gitignore_flow(console: Console, title: str = "", description: str = "") -> str:
     _print_section(console, title, description)
-    project = _ask_project_path()
-    if project is None:
-        return "quit"
+    project = Path.cwd()
     configured = is_gitignore_configured(project)
     status_text = "[green]● generated[/green]" if configured else "[yellow]○ not generated[/yellow]"
     console.print(
         Panel(
-            f"\n  [bold].gitignore[/bold]   {status_text}\n",
+            f"  [dim]{project}[/dim]\n  [bold].gitignore[/bold]   {status_text}",
             title=f"[bold cyan]{project.name}[/bold cyan]",
             border_style="cyan",
             title_align="left",
@@ -587,21 +569,17 @@ def _gitignore_flow(console: Console, title: str = "", description: str = "") ->
 
 def _docker_compose_flow(console: Console, title: str = "", description: str = "") -> str:
     _print_section(console, title, description)
-    project = _ask_project_path()
-    if project is None:
-        return "quit"
+    project = Path.cwd()
     docker_running = is_docker_running()
     configured = is_docker_compose_configured(project)
     daemon_text = "[green]● running[/green]" if docker_running else "[red]● not running[/red]"
     compose_text = "[green]● configured[/green]" if configured else "[yellow]○ not configured[/yellow]"
-    console.print(
-        Panel(
-            f"  [bold]Docker daemon[/bold]      {daemon_text}\n  [bold]Docker Compose[/bold]     {compose_text}",
-            title=f"[bold cyan]{project.name}[/bold cyan]",
-            border_style="cyan",
-            title_align="left",
-        )
+    body = (
+        f"  [dim]{project}[/dim]\n"
+        f"  [bold]Docker daemon[/bold]      {daemon_text}\n"
+        f"  [bold]Docker Compose[/bold]     {compose_text}"
     )
+    console.print(Panel(body, title=f"[bold cyan]{project.name}[/bold cyan]", border_style="cyan", title_align="left"))
     if not docker_running:
         console.print("  [dim]Start Docker Desktop and try again.[/dim]\n")
         return _nav_choice()
@@ -634,11 +612,7 @@ def _docker_compose_flow(console: Console, title: str = "", description: str = "
 
 def _templates_flow(console: Console, title: str = "", description: str = "") -> str:
     _print_section(console, title, description)
-    cwd = Path.cwd()
-    raw = questionary.text(f"Save Template.zip to (. = {cwd}):", default=".", style=_STYLE).ask()
-    if raw is None:
-        return "quit"
-    destination = clean_path(raw)
+    destination = Path.cwd()
     with console.status("[cyan]Downloading Template.zip...[/cyan]"):
         saved = download_template_zip(destination)
     console.print(

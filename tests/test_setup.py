@@ -14,7 +14,6 @@ from setup import (
     MARKER_END,
     MYSQL_JAR_NAME,
     add_file_references,
-    clean_path,
     download_docker_compose,
     download_gitignore_template,
     download_jars,
@@ -605,6 +604,7 @@ class TestMain:
             patch("setup.questionary") as mock_q,
             patch("setup.run_install") as mock_install,
             patch("setup.is_junit5_configured", return_value=False),
+            patch("pathlib.Path.cwd", return_value=project),
         ):
             mock_q.select.return_value.ask.side_effect = [
                 "junit5",
@@ -612,7 +612,6 @@ class TestMain:
                 "back",
                 "quit",
             ]
-            mock_q.text.return_value.ask.return_value = str(project)
             main()
         mock_install.assert_called_once_with(project)
 
@@ -623,6 +622,7 @@ class TestMain:
             patch("setup.questionary") as mock_q,
             patch("setup.run_uninstall") as mock_uninstall,
             patch("setup.is_junit5_configured", return_value=True),
+            patch("pathlib.Path.cwd", return_value=project),
         ):
             mock_q.select.return_value.ask.side_effect = [
                 "junit5",
@@ -630,7 +630,6 @@ class TestMain:
                 "back",
                 "quit",
             ]
-            mock_q.text.return_value.ask.return_value = str(project)
             main()
         mock_uninstall.assert_called_once_with(project)
 
@@ -641,6 +640,7 @@ class TestMain:
             patch("setup.questionary") as mock_q,
             patch("setup.run_install_mysql") as mock_install,
             patch("setup.is_mysql_configured", return_value=False),
+            patch("pathlib.Path.cwd", return_value=mysql_project),
         ):
             mock_q.select.return_value.ask.side_effect = [
                 "database",
@@ -648,7 +648,6 @@ class TestMain:
                 "back",
                 "quit",
             ]
-            mock_q.text.return_value.ask.return_value = str(mysql_project)
             main()
         mock_install.assert_called_once_with(mysql_project)
 
@@ -659,6 +658,7 @@ class TestMain:
             patch("setup.questionary") as mock_q,
             patch("setup.run_uninstall_mysql") as mock_uninstall,
             patch("setup.is_mysql_configured", return_value=True),
+            patch("pathlib.Path.cwd", return_value=mysql_project),
         ):
             mock_q.select.return_value.ask.side_effect = [
                 "database",
@@ -666,7 +666,6 @@ class TestMain:
                 "back",
                 "quit",
             ]
-            mock_q.text.return_value.ask.return_value = str(mysql_project)
             main()
         mock_uninstall.assert_called_once_with(mysql_project)
 
@@ -676,9 +675,9 @@ class TestMain:
             patch("setup.Panel"),
             patch("setup.questionary") as mock_q,
             patch("setup.download_template_zip", return_value=tmp_path / "Template.zip") as mock_dl,
+            patch("pathlib.Path.cwd", return_value=tmp_path),
         ):
             mock_q.select.return_value.ask.side_effect = ["templates", "back", "quit"]
-            mock_q.text.return_value.ask.return_value = str(tmp_path)
             main()
         mock_dl.assert_called_once_with(tmp_path)
 
@@ -687,9 +686,9 @@ class TestMain:
             patch("setup.Console"),
             patch("setup.Panel"),
             patch("setup.questionary") as mock_q,
+            patch("pathlib.Path.cwd", return_value=tmp_path),
         ):
             mock_q.select.return_value.ask.side_effect = ["junit5", "back", "quit"]
-            mock_q.text.return_value.ask.return_value = str(tmp_path)
             main()
 
     def test_handles_permission_error_gracefully(self, project: Path) -> None:
@@ -699,9 +698,9 @@ class TestMain:
             patch("setup.questionary") as mock_q,
             patch("setup.run_install", side_effect=PermissionError("file in use")),
             patch("setup.is_junit5_configured", return_value=False),
+            patch("pathlib.Path.cwd", return_value=project),
         ):
             mock_q.select.return_value.ask.side_effect = ["junit5", "install"]
-            mock_q.text.return_value.ask.return_value = str(project)
             main()
 
     def test_back_returns_to_main_menu(self, project: Path) -> None:
@@ -711,9 +710,9 @@ class TestMain:
             patch("setup.questionary") as mock_q,
             patch("setup.run_install") as mock_install,
             patch("setup.is_junit5_configured", return_value=False),
+            patch("pathlib.Path.cwd", return_value=project),
         ):
             mock_q.select.return_value.ask.side_effect = ["junit5", "back", "quit"]
-            mock_q.text.return_value.ask.return_value = str(project)
             main()
         mock_install.assert_not_called()
 
@@ -724,37 +723,11 @@ class TestMain:
             patch("setup.questionary") as mock_q,
             patch("setup.run_install") as mock_install,
             patch("setup.is_junit5_configured", return_value=False),
+            patch("pathlib.Path.cwd", return_value=project),
         ):
             mock_q.select.return_value.ask.side_effect = ["junit5", "install", "quit"]
-            mock_q.text.return_value.ask.return_value = str(project)
             main()
         mock_install.assert_called_once_with(project)
-
-
-class TestCleanPath:
-    def test_strips_single_quotes(self) -> None:
-        assert clean_path("'/some/path'") == Path("/some/path")
-
-    def test_strips_double_quotes(self) -> None:
-        assert clean_path('"/some/path"') == Path("/some/path")
-
-    def test_strips_trailing_slash(self) -> None:
-        assert clean_path("/some/path/") == Path("/some/path")
-
-    def test_strips_whitespace(self) -> None:
-        assert clean_path("  /some/path  ") == Path("/some/path")
-
-    def test_returns_path_object(self) -> None:
-        assert isinstance(clean_path("/some/path"), Path)
-
-    def test_plain_path_unchanged(self) -> None:
-        assert clean_path("/some/path") == Path("/some/path")
-
-    def test_dot_resolves_to_cwd(self) -> None:
-        assert clean_path(".") == Path.cwd()
-
-    def test_tilde_expands_home(self) -> None:
-        assert clean_path("~") == Path.home()
 
 
 class TestRunInstall:
@@ -934,6 +907,7 @@ class TestMainGitignore:
             patch("setup.questionary") as mock_q,
             patch("setup.generate_gitignore") as mock_gen,
             patch("setup.is_gitignore_configured", return_value=False),
+            patch("pathlib.Path.cwd", return_value=project),
         ):
             mock_q.select.return_value.ask.side_effect = [
                 "gitignore",
@@ -941,7 +915,6 @@ class TestMainGitignore:
                 "back",
                 "quit",
             ]
-            mock_q.text.return_value.ask.return_value = str(project)
             main()
         mock_gen.assert_called_once_with(project)
 
@@ -952,6 +925,7 @@ class TestMainGitignore:
             patch("setup.questionary") as mock_q,
             patch("setup.remove_gitignore") as mock_remove,
             patch("setup.is_gitignore_configured", return_value=True),
+            patch("pathlib.Path.cwd", return_value=project),
         ):
             mock_q.select.return_value.ask.side_effect = [
                 "gitignore",
@@ -959,7 +933,6 @@ class TestMainGitignore:
                 "back",
                 "quit",
             ]
-            mock_q.text.return_value.ask.return_value = str(project)
             main()
         mock_remove.assert_called_once_with(project)
 
@@ -1051,9 +1024,9 @@ class TestMainDockerCompose:
             patch("setup.download_docker_compose") as mock_dl,
             patch("setup.is_docker_running", return_value=True),
             patch("setup.is_docker_compose_configured", return_value=False),
+            patch("pathlib.Path.cwd", return_value=project),
         ):
             mock_q.select.return_value.ask.side_effect = ["docker", "add", "back", "quit"]
-            mock_q.text.return_value.ask.return_value = str(project)
             main()
         mock_dl.assert_called_once_with(project)
 
@@ -1066,9 +1039,9 @@ class TestMainDockerCompose:
             patch("setup.remove_docker_compose") as mock_rm,
             patch("setup.is_docker_running", return_value=True),
             patch("setup.is_docker_compose_configured", return_value=True),
+            patch("pathlib.Path.cwd", return_value=project),
         ):
             mock_q.select.return_value.ask.side_effect = ["docker", "remove", "back", "quit"]
-            mock_q.text.return_value.ask.return_value = str(project)
             main()
         mock_rm.assert_called_once_with(project)
 
@@ -1080,8 +1053,8 @@ class TestMainDockerCompose:
             patch("setup.fetch_descriptions", return_value={}),
             patch("setup.is_docker_running", return_value=False),
             patch("setup.download_docker_compose") as mock_dl,
+            patch("pathlib.Path.cwd", return_value=project),
         ):
             mock_q.select.return_value.ask.side_effect = ["docker", "back", "quit"]
-            mock_q.text.return_value.ask.return_value = str(project)
             main()
         mock_dl.assert_not_called()
