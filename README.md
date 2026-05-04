@@ -84,8 +84,9 @@ void assertionExamples() {
     assertNull(name);
     assertNotNull("hello");
 
-    // assertThrows — verifies that a method throws an exception
-    assertThrows(IllegalArgumentException.class, () -> setAge(-1));
+    // assertThrows — verifies that a method throws an exception and checks the message
+    IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> setAge(-1));
+    assertEquals("Age cannot be negative", ex.getMessage());
 }
 
 // example method that triggers the exception
