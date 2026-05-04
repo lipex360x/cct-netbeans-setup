@@ -638,13 +638,14 @@ def _templates_flow(console: Console, title: str = "", description: str = "") ->
     return _nav_choice()
 
 
-def _dot(configured: bool) -> str:
-    cyan = "\033[38;2;0;215;255m"
-    reset = "\033[0m"
-    return f"{cyan}●{reset}" if configured else f"{cyan}○{reset}"
+_FormattedTitle = list[tuple[str, str]]
 
 
-def _feature_dots(project: Path) -> dict[str, str]:
+def _dot(configured: bool) -> _FormattedTitle:
+    return [("fg:#00d7ff bold", "●" if configured else "○")]
+
+
+def _feature_dots(project: Path) -> dict[str, _FormattedTitle]:
     try:
         validate_netbeans_project(project)
     except ValueError:
@@ -657,10 +658,11 @@ def _feature_dots(project: Path) -> dict[str, str]:
     }
 
 
-def _menu_label(indicators: dict[str, str], key: str, label: str) -> str:
+def _menu_label(indicators: dict[str, _FormattedTitle], key: str, label: str) -> _FormattedTitle | str:
     if not indicators:
         return label
-    return f"{indicators.get(key, ' ')} {label}"
+    dot = indicators.get(key, [("", " ")])
+    return dot + [("", f" {label}")]
 
 
 def _run_flow(console: Console, choice: str, descriptions: dict[str, dict[str, str]]) -> str:
