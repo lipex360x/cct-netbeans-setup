@@ -30,10 +30,7 @@ Tests: `tests/test_setup.py` — pytest with `tmp_path` fixtures and HTTP mocks.
 
 ## Quality
 
-Pre-commit configured in `.pre-commit-config.yaml`. The pipeline validates:
-- `check-abbrev`, `check-comments`, `ruff check`, `ruff format --line-length 100`, `mypy`, `vulture`, `bandit`, `pylint`, `pytest`
+Pre-commit is installed system-wide and configured in `.pre-commit-config.yaml`. The pipeline validates:
+- `check-abbrev`, `check-comments`, `ruff check`, `ruff format`, `mypy`, `vulture`, `bandit`, `pylint`, `pytest`
 
-To validate manually:
-```bash
-uvx --from git+https://github.com/lipex360x/dev-quality check-all .
-```
+Before writing any code, load the `/dev-quality` skill — it enforces all quality rules inline.
