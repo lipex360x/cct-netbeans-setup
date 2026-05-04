@@ -1,5 +1,5 @@
 repos:
   - repo: https://github.com/lipex360x/dev-quality
-    rev: v0.13.2
+    rev: v0.15.3
     hooks:
       - id: check-all

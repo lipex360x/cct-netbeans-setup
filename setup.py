@@ -345,20 +345,28 @@ def remove_docker_compose(project: Path) -> None:
         target.unlink()
 
 
+def _gitignore_file(project: Path) -> Path:
+    return project / ".gitignore"
+
+
+def _properties_file(project: Path) -> Path:
+    return project / "nbproject" / "project.properties"
+
+
 def is_gitignore_configured(project: Path) -> bool:
-    gitignore = project / ".gitignore"
+    gitignore = _gitignore_file(project)
     return gitignore.is_file() and GITIGNORE_MARKER in gitignore.read_text()
 
 
 def generate_gitignore(project: Path) -> None:
-    gitignore = project / ".gitignore"
+    gitignore = _gitignore_file(project)
     if gitignore.is_file() and GITIGNORE_MARKER in gitignore.read_text():
         return
     gitignore.write_text(download_gitignore_template())
 
 
 def remove_gitignore(project: Path) -> None:
-    gitignore = project / ".gitignore"
+    gitignore = _gitignore_file(project)
     if gitignore.is_file() and GITIGNORE_MARKER in gitignore.read_text():
         gitignore.unlink()
 
@@ -371,7 +379,7 @@ def run_install(project: Path) -> None:
     validate_netbeans_project(project)
     jar_names = fetch_jar_names()
     download_jars(project / "lib" / "junit5", jar_names)
-    properties = project / "nbproject" / "project.properties"
+    properties = _properties_file(project)
     set_compile_on_save_false(properties)
     add_file_references(properties, jar_names)
     modify_classpath(properties, jar_names)
@@ -379,7 +387,7 @@ def run_install(project: Path) -> None:
 
 
 def run_uninstall(project: Path) -> None:
-    properties = project / "nbproject" / "project.properties"
+    properties = _properties_file(project)
     remove_jar_directory(project)
     remove_file_references(properties)
     revert_classpath(properties)
@@ -389,7 +397,7 @@ def run_uninstall(project: Path) -> None:
 def run_install_mysql(project: Path) -> None:
     validate_netbeans_project(project)
     download_mysql_jar(project / "lib" / "mysql")
-    properties = project / "nbproject" / "project.properties"
+    properties = _properties_file(project)
     add_file_references(properties, [MYSQL_JAR_NAME], lib_dir="lib/mysql")
     modify_classpath(properties, [MYSQL_JAR_NAME], keys=_MYSQL_CLASSPATH_KEYS)
 
@@ -398,7 +406,7 @@ def run_uninstall_mysql(project: Path) -> None:
     jar_dir = project / "lib" / "mysql"
     if jar_dir.is_dir():
         shutil.rmtree(jar_dir)
-    properties = project / "nbproject" / "project.properties"
+    properties = _properties_file(project)
     remove_file_references(properties, lib_dir="lib/mysql")
     revert_classpath(properties, keys=_MYSQL_CLASSPATH_KEYS)
 

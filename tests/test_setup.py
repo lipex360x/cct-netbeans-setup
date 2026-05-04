@@ -109,6 +109,21 @@ def build_xml(project: Path) -> Path:
     return project / "build.xml"
 
 
+@pytest.fixture()  # type: ignore[untyped-decorator]
+def mysql_jar_dir(mysql_project: Path) -> Path:
+    return mysql_project / "lib" / "mysql"
+
+
+@pytest.fixture()  # type: ignore[untyped-decorator]
+def mysql_properties(mysql_project: Path) -> Path:
+    return mysql_project / "nbproject" / "project.properties"
+
+
+@pytest.fixture()  # type: ignore[untyped-decorator]
+def junit5_dest(tmp_path: Path) -> Path:
+    return tmp_path / "lib" / "junit5"
+
+
 class TestValidateNetbeansProject:
     def test_raises_when_dir_missing(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="not found"):
@@ -152,18 +167,19 @@ class TestIsMysqlConfigured:
     def test_false_when_jar_missing(self, mysql_project: Path) -> None:
         assert is_mysql_configured(mysql_project) is False
 
-    def test_false_when_jar_exists_but_no_reference(self, mysql_project: Path) -> None:
-        jar_dir = mysql_project / "lib" / "mysql"
-        jar_dir.mkdir(parents=True)
-        (jar_dir / MYSQL_JAR_NAME).write_bytes(b"fake")
+    def test_false_when_jar_exists_but_no_reference(self, mysql_project: Path, mysql_jar_dir: Path) -> None:
+        mysql_jar_dir.mkdir(parents=True)
+        (mysql_jar_dir / MYSQL_JAR_NAME).write_bytes(b"fake")
         assert is_mysql_configured(mysql_project) is False
 
-    def test_true_when_jar_and_reference_present(self, mysql_project: Path) -> None:
-        jar_dir = mysql_project / "lib" / "mysql"
-        jar_dir.mkdir(parents=True)
-        (jar_dir / MYSQL_JAR_NAME).write_bytes(b"fake")
-        properties = mysql_project / "nbproject" / "project.properties"
-        properties.write_text(properties.read_text() + f"file.reference.{MYSQL_JAR_NAME}=lib/mysql/{MYSQL_JAR_NAME}\n")
+    def test_true_when_jar_and_reference_present(
+        self, mysql_project: Path, mysql_jar_dir: Path, mysql_properties: Path
+    ) -> None:
+        mysql_jar_dir.mkdir(parents=True)
+        (mysql_jar_dir / MYSQL_JAR_NAME).write_bytes(b"fake")
+        mysql_properties.write_text(
+            mysql_properties.read_text() + f"file.reference.{MYSQL_JAR_NAME}=lib/mysql/{MYSQL_JAR_NAME}\n"
+        )
         assert is_mysql_configured(mysql_project) is True
 
 
@@ -265,10 +281,9 @@ class TestModifyClasspath:
         content = properties.read_text()
         assert content.count("file.reference.junit-jupiter-api-5.10.3.jar") == 2
 
-    def test_custom_keys_target_correct_blocks(self, mysql_project: Path) -> None:
-        properties = mysql_project / "nbproject" / "project.properties"
-        modify_classpath(properties, [MYSQL_JAR_NAME], keys=_MYSQL_CLASSPATH_KEYS)
-        content = properties.read_text()
+    def test_custom_keys_target_correct_blocks(self, mysql_properties: Path) -> None:
+        modify_classpath(mysql_properties, [MYSQL_JAR_NAME], keys=_MYSQL_CLASSPATH_KEYS)
+        content = mysql_properties.read_text()
         assert f"${{file.reference.{MYSQL_JAR_NAME}}}" in content
 
 
@@ -446,33 +461,30 @@ class TestFetchJarNames:
 
 
 class TestDownloadJars:
-    def test_creates_dest_directory(self, tmp_path: Path) -> None:
-        destination = tmp_path / "lib" / "junit5"
+    def test_creates_dest_directory(self, junit5_dest: Path) -> None:
         mock_response = MagicMock()
         mock_response.content = b"fake-jar-bytes"
         mock_response.raise_for_status = MagicMock()
 
         with patch("requests.get", return_value=mock_response):
-            download_jars(destination, JAR_NAMES)
+            download_jars(junit5_dest, JAR_NAMES)
 
-        assert destination.exists()
+        assert junit5_dest.exists()
 
-    def test_writes_jar_files(self, tmp_path: Path) -> None:
-        destination = tmp_path / "lib" / "junit5"
+    def test_writes_jar_files(self, junit5_dest: Path) -> None:
         mock_response = MagicMock()
         mock_response.content = b"fake-jar-bytes"
         mock_response.raise_for_status = MagicMock()
 
         with patch("requests.get", return_value=mock_response):
-            download_jars(destination, JAR_NAMES)
+            download_jars(junit5_dest, JAR_NAMES)
 
         for name in JAR_NAMES:
-            assert (destination / name).exists()
+            assert (junit5_dest / name).exists()
 
-    def test_skips_existing_jars(self, tmp_path: Path) -> None:
-        destination = tmp_path / "lib" / "junit5"
-        destination.mkdir(parents=True)
-        existing = destination / JAR_NAMES[0]
+    def test_skips_existing_jars(self, junit5_dest: Path) -> None:
+        junit5_dest.mkdir(parents=True)
+        existing = junit5_dest / JAR_NAMES[0]
         existing.write_bytes(b"already-here")
 
         mock_response = MagicMock()
@@ -480,7 +492,7 @@ class TestDownloadJars:
         mock_response.raise_for_status = MagicMock()
 
         with patch("requests.get", return_value=mock_response) as mock_get:
-            download_jars(destination, JAR_NAMES)
+            download_jars(junit5_dest, JAR_NAMES)
 
         called_urls = [call.args[0] for call in mock_get.call_args_list]
         assert not any(JAR_NAMES[0] in request_url for request_url in called_urls)
@@ -538,24 +550,21 @@ class TestRunInstallMysql:
 
 
 class TestRunUninstallMysql:
-    def test_removes_lib_mysql_directory(self, mysql_project: Path) -> None:
-        jar_dir = mysql_project / "lib" / "mysql"
-        jar_dir.mkdir(parents=True)
-        (jar_dir / MYSQL_JAR_NAME).write_bytes(b"fake")
+    def test_removes_lib_mysql_directory(self, mysql_project: Path, mysql_jar_dir: Path) -> None:
+        mysql_jar_dir.mkdir(parents=True)
+        (mysql_jar_dir / MYSQL_JAR_NAME).write_bytes(b"fake")
         run_uninstall_mysql(mysql_project)
-        assert not jar_dir.exists()
+        assert not mysql_jar_dir.exists()
 
-    def test_removes_file_references(self, mysql_project: Path) -> None:
-        properties = mysql_project / "nbproject" / "project.properties"
-        add_file_references(properties, [MYSQL_JAR_NAME], lib_dir="lib/mysql")
+    def test_removes_file_references(self, mysql_project: Path, mysql_properties: Path) -> None:
+        add_file_references(mysql_properties, [MYSQL_JAR_NAME], lib_dir="lib/mysql")
         run_uninstall_mysql(mysql_project)
-        assert f"file.reference.{MYSQL_JAR_NAME}" not in properties.read_text()
+        assert f"file.reference.{MYSQL_JAR_NAME}" not in mysql_properties.read_text()
 
-    def test_reverts_classpath(self, mysql_project: Path) -> None:
-        properties = mysql_project / "nbproject" / "project.properties"
-        modify_classpath(properties, [MYSQL_JAR_NAME], keys=_MYSQL_CLASSPATH_KEYS)
+    def test_reverts_classpath(self, mysql_project: Path, mysql_properties: Path) -> None:
+        modify_classpath(mysql_properties, [MYSQL_JAR_NAME], keys=_MYSQL_CLASSPATH_KEYS)
         run_uninstall_mysql(mysql_project)
-        assert f"${{file.reference.{MYSQL_JAR_NAME}}}" not in properties.read_text()
+        assert f"${{file.reference.{MYSQL_JAR_NAME}}}" not in mysql_properties.read_text()
 
     def test_noop_when_lib_dir_missing(self, mysql_project: Path) -> None:
         run_uninstall_mysql(mysql_project)
