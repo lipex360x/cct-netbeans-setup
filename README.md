@@ -1,13 +1,25 @@
 # NetBeans — CCT Setup
 
-Shared configuration repository for Java projects in NetBeans.
-Provides a zero-clone CLI that configures NetBeans Ant projects automatically.
+> Zero-clone CLI to configure NetBeans Ant projects with JUnit 5, editor preferences, and code templates — no git clone required.
+
+![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![uv](https://img.shields.io/badge/uv-PEP%20723-blueviolet)
 
 ---
 
-## Prerequisites (once per machine)
+## Contents
 
-Install `uv`:
+- [Prerequisites](#prerequisites)
+- [Per-project setup](#per-project-setup)
+- [Global setup](#global-setup)
+- [JUnit 5 — Common Assertions](#junit-5--common-assertions)
+- [Repository structure](#repository-structure)
+- [Included JARs](#included-jars)
+
+---
+
+## Prerequisites
+
+Install `uv` once per machine:
 
 **Windows (PowerShell):**
 ```powershell
@@ -18,6 +30,11 @@ irm https://astral.sh/uv/install.ps1 | iex
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
+
+> [!TIP]
+> If `uv` is already installed, skip this step.
+
+<div align="right"><a href="#netbeans--cct-setup">↑ Back to top</a></div>
 
 ---
 
@@ -38,11 +55,16 @@ curl -s "https://raw.githubusercontent.com/lipex360x/cct-netbeans-setup/main/set
 
 The script downloads everything it needs and walks you through the options interactively.
 
+<div align="right"><a href="#netbeans--cct-setup">↑ Back to top</a></div>
+
 ---
 
-## Global setup (once per machine)
+## Global setup
 
-Templates and theme must be imported manually into NetBeans.
+Templates and theme can be applied automatically via the script (option **[2] NetBeans Templates**), or manually as described below.
+
+> [!NOTE]
+> The script (menu option **[2]**) handles the import automatically. The manual steps below are a fallback for cases where the script cannot detect your NetBeans user directory.
 
 ### 1. Import settings and theme
 
@@ -58,6 +80,8 @@ Open each template in **Tools → Templates** and paste the content of the corre
 | `MainClassTemplate.java` | Java → Java Main Class |
 | `JUnitTemplate.java` | Test Class → JUnit 5.x → Open in Editor |
 
+<div align="right"><a href="#netbeans--cct-setup">↑ Back to top</a></div>
+
 ---
 
 ## JUnit 5 — Common Assertions
@@ -65,50 +89,57 @@ Open each template in **Tools → Templates** and paste the content of the corre
 ```java
 import static org.junit.jupiter.api.Assertions.*;
 
-@Test
-void sumReturnsCorrectResult() {
-    assertEquals(4, 2 + 2, "2 + 2 should equal 4");
-}
+class ExampleTest {
 
-@Test
-void sumDoesNotReturnWrongResult() {
-    assertNotEquals(5, 2 + 2);
-}
+    @Test
+    void sumReturnsCorrectResult() {
+        assertEquals(4, 2 + 2, "2 + 2 should equal 4");
+    }
 
-@Test
-void conditionIsTrue() {
-    assertTrue(2 + 2 == 4);
-}
+    @Test
+    void sumDoesNotReturnWrongResult() {
+        assertNotEquals(5, 2 + 2);
+    }
 
-@Test
-void conditionIsFalse() {
-    assertFalse(2 + 2 == 5);
-}
+    @Test
+    void conditionIsTrue() {
+        assertTrue(2 + 2 == 4);
+    }
 
-@Test
-void uninitializedValueIsNull() {
-    String name = null;
-    assertNull(name);
-}
+    @Test
+    void conditionIsFalse() {
+        assertFalse(2 + 2 == 5);
+    }
 
-@Test
-void assignedValueIsNotNull() {
-    assertNotNull("hello");
-}
+    @Test
+    void uninitializedValueIsNull() {
+        String name = null;
+        assertNull(name);
+    }
 
-@Test
-void setAgeThrowsForNegativeValue() {
-    IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> setAge(-1));
-    assertEquals("Age cannot be negative", ex.getMessage());
-}
+    @Test
+    void assignedValueIsNotNull() {
+        assertNotNull("hello");
+    }
 
-// example method used by setAgeThrowsForNegativeValue
-void setAge(int age) {
-    if (age < 0) {
-        throw new IllegalArgumentException("Age cannot be negative");
+    @Test
+    void setAgeThrowsForNegativeValue() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> setAge(-1));
+        assertEquals("Age cannot be negative", ex.getMessage());
+    }
+
+    void setAge(int age) {
+        if (age < 0) {
+            throw new IllegalArgumentException("Age cannot be negative");
+        }
     }
 }
 ```
+
+> [!IMPORTANT]
+> In `assertThrows`, the lambda must call the method that throws — never wrap the assertion itself inside the lambda.
+
+<div align="right"><a href="#netbeans--cct-setup">↑ Back to top</a></div>
 
 ---
 
@@ -134,9 +165,12 @@ cct-netbeans-setup/
 │   ├── JUnitTemplate.java
 │   └── templates.md
 ├── tests/
-│   └── test_setup.py
+│   ├── test_setup.py
+│   └── test_templates.py
 └── setup.py                      ← CLI entry point (uv PEP 723 script)
 ```
+
+<div align="right"><a href="#netbeans--cct-setup">↑ Back to top</a></div>
 
 ---
 
@@ -161,3 +195,5 @@ cct-netbeans-setup/
 | JAR | Notes |
 |---|---|
 | `mysql-connector-j.jar` | Current version in the repository |
+
+<div align="right"><a href="#netbeans--cct-setup">↑ Back to top</a></div>
