@@ -60,6 +60,29 @@ Open each template in **Tools → Templates** and paste the content of the corre
 
 ---
 
+## JUnit 5 — Common Assertions
+
+```java
+import static org.junit.jupiter.api.Assertions.*;
+
+@Test
+void exemploAssertions() {
+
+    // assertTrue / assertFalse
+    assertTrue(2 + 2 == 4);
+    assertFalse(2 + 2 == 5);
+
+    // assertEquals / assertNotEquals
+    assertEquals(4, 2 + 2);
+    assertNotEquals(5, 2 + 2);
+
+    // with a failure message (shown when the assertion fails)
+    assertEquals(4, 2 + 2, "2 + 2 should equal 4");
+}
+```
+
+---
+
 ## Repository structure
 
 ```
