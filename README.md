@@ -56,6 +56,18 @@ curl -s "https://raw.githubusercontent.com/lipex360x/cct-netbeans-setup/main/set
 
 The script downloads everything it needs and walks you through the options interactively.
 
+The main menu shows `●` next to features already configured in the current project and `○` for features not yet installed:
+
+```
+? Select an option:
+❯ ● [1] MySQL Database
+  ○ [2] JUnit 5
+  ● [3] Docker Compose
+  ○ [4] .gitignore
+    [5] NetBeans Templates
+    Quit
+```
+
 <div align="right"><a href="#netbeans--cct-setup">↑ Back to top</a></div>
 
 ---
