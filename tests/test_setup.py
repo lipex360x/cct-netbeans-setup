@@ -435,7 +435,7 @@ class TestMain:
             patch("setup.Panel"),
             patch("setup.Prompt") as mock_prompt,
         ):
-            mock_prompt.ask.return_value = str(tmp_path)
+            mock_prompt.ask.side_effect = ["1", str(tmp_path)]
             main()
         mock_console_class.return_value.print.assert_called()
 
@@ -447,7 +447,7 @@ class TestMain:
             patch("setup.run_install") as mock_install,
             patch("setup.is_junit5_configured", return_value=False),
         ):
-            mock_prompt.ask.side_effect = [str(project), "1"]
+            mock_prompt.ask.side_effect = ["1", str(project), "1"]
             main()
         mock_install.assert_called_once_with(project)
 
@@ -459,7 +459,7 @@ class TestMain:
             patch("setup.run_uninstall") as mock_uninstall,
             patch("setup.is_junit5_configured", return_value=True),
         ):
-            mock_prompt.ask.side_effect = [str(project), "2"]
+            mock_prompt.ask.side_effect = ["1", str(project), "2"]
             main()
         mock_uninstall.assert_called_once_with(project)
 
@@ -471,7 +471,7 @@ class TestMain:
             patch("setup.run_install") as mock_install,
             patch("setup.is_junit5_configured", return_value=False),
         ):
-            mock_prompt.ask.side_effect = [str(project), "q"]
+            mock_prompt.ask.side_effect = ["1", str(project), "q"]
             main()
         mock_install.assert_not_called()
 
@@ -483,7 +483,7 @@ class TestMain:
             patch("setup.run_uninstall") as mock_uninstall,
             patch("setup.is_junit5_configured", return_value=True),
         ):
-            mock_prompt.ask.side_effect = [str(project), "q"]
+            mock_prompt.ask.side_effect = ["1", str(project), "q"]
             main()
         mock_uninstall.assert_not_called()
 
@@ -495,9 +495,84 @@ class TestMain:
             patch("setup.run_uninstall", side_effect=PermissionError("file in use")),
             patch("setup.is_junit5_configured", return_value=True),
         ):
-            mock_prompt.ask.side_effect = [str(project), "2"]
+            mock_prompt.ask.side_effect = ["1", str(project), "2"]
             main()
         mock_console_class.return_value.print.assert_called()
+
+    def test_quits_on_top_level_q(self) -> None:
+        with (
+            patch("setup.Console"),
+            patch("setup.Panel"),
+            patch("setup.Prompt") as mock_prompt,
+            patch("setup.run_install") as mock_install,
+        ):
+            mock_prompt.ask.side_effect = ["q"]
+            main()
+        mock_install.assert_not_called()
+
+    def test_calls_run_install_templates_on_option_2_then_3(self, tmp_path: Path) -> None:
+        with (
+            patch("setup.Console"),
+            patch("setup.Panel"),
+            patch("setup.Prompt") as mock_prompt,
+            patch("setup.find_netbeans_user_dir", return_value=tmp_path),
+            patch("setup.are_templates_installed", return_value=False),
+            patch("setup.run_install_templates") as mock_run,
+        ):
+            mock_prompt.ask.side_effect = ["2", "3"]
+            main()
+        mock_run.assert_called_once_with(tmp_path)
+
+    def test_shows_already_installed_when_no_backup(self, tmp_path: Path) -> None:
+        with (
+            patch("setup.Console") as mock_console_class,
+            patch("setup.Panel"),
+            patch("setup.Prompt") as mock_prompt,
+            patch("setup.find_netbeans_user_dir", return_value=tmp_path),
+            patch("setup.are_templates_installed", return_value=True),
+            patch("setup.is_setup_backup_present", return_value=False),
+        ):
+            mock_prompt.ask.side_effect = ["2"]
+            main()
+        mock_console_class.return_value.print.assert_called()
+
+    def test_calls_rollback_setup_when_backup_present(self, tmp_path: Path) -> None:
+        with (
+            patch("setup.Console"),
+            patch("setup.Panel"),
+            patch("setup.Prompt") as mock_prompt,
+            patch("setup.find_netbeans_user_dir", return_value=tmp_path),
+            patch("setup.are_templates_installed", return_value=True),
+            patch("setup.is_setup_backup_present", return_value=True),
+            patch("setup.rollback_setup") as mock_rollback,
+        ):
+            mock_prompt.ask.side_effect = ["2", "3"]
+            main()
+        mock_rollback.assert_called_once_with(tmp_path)
+
+    def test_handles_netbeans_dir_not_found(self) -> None:
+        with (
+            patch("setup.Console") as mock_console_class,
+            patch("setup.Panel"),
+            patch("setup.Prompt") as mock_prompt,
+            patch("setup.find_netbeans_user_dir", return_value=None),
+        ):
+            mock_prompt.ask.side_effect = ["2"]
+            main()
+        mock_console_class.return_value.print.assert_called()
+
+    def test_quits_templates_on_q(self, tmp_path: Path) -> None:
+        with (
+            patch("setup.Console"),
+            patch("setup.Panel"),
+            patch("setup.Prompt") as mock_prompt,
+            patch("setup.find_netbeans_user_dir", return_value=tmp_path),
+            patch("setup.are_templates_installed", return_value=False),
+            patch("setup.run_install_templates") as mock_run,
+        ):
+            mock_prompt.ask.side_effect = ["2", "q"]
+            main()
+        mock_run.assert_not_called()
 
 
 class TestCleanPath:
@@ -532,24 +607,36 @@ class TestRunInstall:
             run_install(tmp_path)
 
     def test_sets_compile_on_save_false(self, project: Path) -> None:
-        with patch("setup.fetch_jar_names", return_value=JAR_NAMES), patch("setup.download_jars"):
+        with (
+            patch("setup.fetch_jar_names", return_value=JAR_NAMES),
+            patch("setup.download_jars"),
+        ):
             run_install(project)
         assert "compile.on.save=false" in (project / "nbproject" / "project.properties").read_text()
 
     def test_adds_file_references(self, project: Path) -> None:
-        with patch("setup.fetch_jar_names", return_value=JAR_NAMES), patch("setup.download_jars"):
+        with (
+            patch("setup.fetch_jar_names", return_value=JAR_NAMES),
+            patch("setup.download_jars"),
+        ):
             run_install(project)
         content = (project / "nbproject" / "project.properties").read_text()
         assert "file.reference.junit-jupiter-api-5.10.3.jar" in content
 
     def test_modifies_classpath(self, project: Path) -> None:
-        with patch("setup.fetch_jar_names", return_value=JAR_NAMES), patch("setup.download_jars"):
+        with (
+            patch("setup.fetch_jar_names", return_value=JAR_NAMES),
+            patch("setup.download_jars"),
+        ):
             run_install(project)
         content = (project / "nbproject" / "project.properties").read_text()
         assert "${file.reference.junit-jupiter-api-5.10.3.jar}" in content
 
     def test_injects_build_xml(self, project: Path) -> None:
-        with patch("setup.fetch_jar_names", return_value=JAR_NAMES), patch("setup.download_jars"):
+        with (
+            patch("setup.fetch_jar_names", return_value=JAR_NAMES),
+            patch("setup.download_jars"),
+        ):
             run_install(project)
         assert MARKER_BEGIN in (project / "build.xml").read_text()
 
@@ -562,7 +649,10 @@ class TestRunInstall:
         mock_download.assert_called_once_with(project / "lib" / "junit5", JAR_NAMES)
 
     def test_idempotent(self, project: Path) -> None:
-        with patch("setup.fetch_jar_names", return_value=JAR_NAMES), patch("setup.download_jars"):
+        with (
+            patch("setup.fetch_jar_names", return_value=JAR_NAMES),
+            patch("setup.download_jars"),
+        ):
             run_install(project)
             run_install(project)
         content = (project / "nbproject" / "project.properties").read_text()
@@ -593,7 +683,10 @@ class TestRunUninstall:
         assert MARKER_BEGIN not in (project / "build.xml").read_text()
 
     def test_full_install_uninstall_cycle(self, project: Path) -> None:
-        with patch("setup.fetch_jar_names", return_value=JAR_NAMES), patch("setup.download_jars"):
+        with (
+            patch("setup.fetch_jar_names", return_value=JAR_NAMES),
+            patch("setup.download_jars"),
+        ):
             run_install(project)
         run_uninstall(project)
         props = (project / "nbproject" / "project.properties").read_text()

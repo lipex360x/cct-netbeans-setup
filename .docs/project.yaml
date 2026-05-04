@@ -81,9 +81,27 @@ features:
         - remove injected Ant targets from build.xml (between markers)
       note: compile.on.save is left as-is during uninstall
 
+    netbeans_templates_install:
+      trigger: menu option [2]
+      steps:
+        - detect NetBeans user directory (macOS, Linux, Windows)
+        - download templates/Template.zip from GitHub to a temp directory
+        - extract and copy allowed files to the NetBeans user dir (config/Editors/, config/Templates/, curated config/Preferences/)
+        - record newly created files in cct-setup-backup/new-files.txt for rollback
+        - skips files that already exist (idempotent)
+      idempotent: true
+      note: laf.properties (Look and Feel) is only applied on macOS; machine-specific files (autoupdate, history) are excluded
+
+    netbeans_templates_rollback:
+      trigger: menu option [3] shown when templates installed and backup present
+      steps:
+        - read cct-setup-backup/new-files.txt
+        - delete each listed file from the NetBeans user dir
+        - remove cct-setup-backup/ directory
+      note: only files created by the install are removed; pre-existing files are untouched
+
   planned:
     - mysql_connector_install
-    - netbeans_templates_guide
 
 design_decisions:
   relative_jar_paths: >

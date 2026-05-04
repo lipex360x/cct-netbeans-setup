@@ -5,7 +5,11 @@
 
 from __future__ import annotations
 
+import os
 import shutil
+import sys
+import tempfile
+import zipfile
 from pathlib import Path
 
 import requests
@@ -19,9 +23,23 @@ MARKER_END = "<!-- cct-netbeans-setup:end -->"
 GITHUB_REPO = "lipex360x/cct-netbeans-setup"
 GITHUB_BRANCH = "main"
 GITHUB_JARS_PATH = "libs/tests/junit5/jar"
+GITHUB_SETUP_ZIP_PATH = "templates/Template.zip"
 
 _GITHUB_API = "https://api.github.com/repos"
 _GITHUB_RAW = "https://raw.githubusercontent.com"
+
+_TEMPLATE_PATHS = (
+    "config/Templates/Classes/Class.java",
+    "config/Templates/Classes/Main.java",
+    "config/Templates/UnitTests/JUnit5TestClass.java",
+)
+
+_SAFE_PREFERENCES: frozenset[str] = frozenset(
+    {
+        "config/Preferences/org/apache/tools/ant/module.properties",
+        "config/Preferences/org/netbeans/core/multitabs/multi-tabs.properties",
+    }
+)
 
 
 def validate_netbeans_project(path: Path) -> None:
@@ -283,6 +301,158 @@ def run_uninstall(project: Path) -> None:
     remove_build_xml_override(project / "build.xml")
 
 
+def _netbeans_base() -> Path:
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "NetBeans"
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA")
+        return (Path(appdata) if appdata else Path.home()) / "NetBeans"
+    return Path.home() / ".netbeans"
+
+
+def find_netbeans_user_dir(base: Path | None = None) -> Path | None:
+    root = base if base is not None else _netbeans_base()
+    if not root.is_dir():
+        return None
+    candidates = [d for d in root.iterdir() if d.is_dir()]
+    return max(candidates, key=lambda d: d.name) if candidates else None
+
+
+def are_templates_installed(netbeans_dir: Path) -> bool:
+    return all((netbeans_dir / path).is_file() for path in _TEMPLATE_PATHS)
+
+
+def _backup_dir(netbeans_dir: Path) -> Path:
+    return netbeans_dir / "cct-setup-backup"
+
+
+def is_setup_backup_present(netbeans_dir: Path) -> bool:
+    return (_backup_dir(netbeans_dir) / "new-files.txt").is_file()
+
+
+def _setup_entry_allowed(name: str) -> bool:
+    if Path(name).name in {".DS_Store", ".nbattrs"}:
+        return False
+    if name.startswith("config/Editors/") or name.startswith("config/Templates/"):
+        return True
+    if name == "config/Preferences/laf.properties":
+        return sys.platform == "darwin"
+    return name in _SAFE_PREFERENCES
+
+
+def download_and_apply_setup(netbeans_dir: Path) -> None:
+    url = f"{_GITHUB_RAW}/{GITHUB_REPO}/{GITHUB_BRANCH}/{GITHUB_SETUP_ZIP_PATH}"
+    response = requests.get(url, timeout=30)
+    response.raise_for_status()
+    new_files: list[str] = []
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        archive_path = Path(temporary_dir) / "setup.zip"
+        archive_path.write_bytes(response.content)
+        with zipfile.ZipFile(archive_path) as archive:
+            for member in archive.namelist():
+                if member.endswith("/") or not _setup_entry_allowed(member):
+                    continue
+                target = netbeans_dir / member
+                if target.is_file():
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(archive.read(member))
+                new_files.append(member)
+    if new_files:
+        backup = _backup_dir(netbeans_dir)
+        backup.mkdir(parents=True, exist_ok=True)
+        (backup / "new-files.txt").write_text("\n".join(new_files) + "\n")
+
+
+def rollback_setup(netbeans_dir: Path) -> None:
+    backup = _backup_dir(netbeans_dir)
+    record = backup / "new-files.txt"
+    if not record.is_file():
+        return
+    for path in record.read_text().splitlines():
+        target = netbeans_dir / path
+        if target.is_file():
+            target.unlink()
+    shutil.rmtree(backup)
+
+
+def run_install_templates(netbeans_dir: Path) -> None:
+    download_and_apply_setup(netbeans_dir)
+
+
+def _templates_flow(console: Console) -> None:
+    netbeans_dir = find_netbeans_user_dir()
+    if netbeans_dir is None:
+        console.print("\n  [red]✗[/red]  NetBeans user directory not found.\n")
+        return
+    installed = are_templates_installed(netbeans_dir)
+    status_text = "[green]● installed[/green]" if installed else "[yellow]○ not installed[/yellow]"
+    console.print(
+        Panel(
+            f"\n  [bold]Templates[/bold]   {status_text}\n  [dim]{netbeans_dir}[/dim]\n",
+            title="[bold cyan]NetBeans Templates[/bold cyan]",
+            border_style="cyan",
+            title_align="left",
+        )
+    )
+    if installed:
+        if not is_setup_backup_present(netbeans_dir):
+            console.print("\n  [green]✓[/green]  Templates already installed.\n")
+            return
+        console.print("  [bold cyan][3][/bold cyan] Rollback Templates   [dim]q  Quit[/dim]\n")
+        choice = Prompt.ask("  Choice", choices=["3", "q"])
+        if choice == "q":
+            return
+        with console.status("[cyan]Rolling back templates...[/cyan]"):
+            rollback_setup(netbeans_dir)
+        console.print("\n  [green]✓[/green]  Templates rolled back.\n")
+        return
+    console.print("  [bold cyan][3][/bold cyan] Install Templates   [dim]q  Quit[/dim]\n")
+    choice = Prompt.ask("  Choice", choices=["3", "q"])
+    if choice == "q":
+        return
+    with console.status("[cyan]Installing templates...[/cyan]"):
+        run_install_templates(netbeans_dir)
+    console.print("\n  [green]✓[/green]  Templates installed.\n")
+
+
+def _junit5_flow(console: Console) -> None:
+    cwd = Path.cwd()
+    raw = Prompt.ask(f"\nNetBeans project path [dim](. = {cwd})[/dim]")
+    project = clean_path(raw)
+    try:
+        validate_netbeans_project(project)
+    except ValueError as error:
+        console.print(f"\n  [red]✗[/red]  {error}\n")
+        return
+    configured = is_junit5_configured(project)
+    status_text = "[green]● installed[/green]" if configured else "[yellow]○ not installed[/yellow]"
+    console.print(
+        Panel(
+            f"\n  [bold]JUnit 5[/bold]   {status_text}\n",
+            title=f"[bold cyan]{project.name}[/bold cyan]",
+            border_style="cyan",
+            title_align="left",
+        )
+    )
+    if configured:
+        console.print("  [bold cyan][2][/bold cyan] Uninstall JUnit 5   [dim]q  Quit[/dim]\n")
+        choice = Prompt.ask("  Choice", choices=["2", "q"])
+        if choice == "q":
+            return
+        with console.status("[cyan]Uninstalling JUnit 5...[/cyan]"):
+            run_uninstall(project)
+        console.print("\n  [green]✓[/green]  JUnit 5 uninstalled.\n")
+    else:
+        console.print("  [bold cyan][1][/bold cyan] Install JUnit 5   [dim]q  Quit[/dim]\n")
+        choice = Prompt.ask("  Choice", choices=["1", "q"])
+        if choice == "q":
+            return
+        with console.status("[cyan]Installing JUnit 5...[/cyan]"):
+            run_install(project)
+        console.print("\n  [green]✓[/green]  JUnit 5 installed.\n")
+
+
 def main() -> None:
     console = Console()
     console.print(
@@ -293,42 +463,18 @@ def main() -> None:
         )
     )
     try:
-        cwd = Path.cwd()
-        raw = Prompt.ask(f"\nNetBeans project path [dim](. = {cwd})[/dim]")
-        project = clean_path(raw)
-        try:
-            validate_netbeans_project(project)
-        except ValueError as error:
-            console.print(f"\n  [red]✗[/red]  {error}\n")
-            return
-        configured = is_junit5_configured(project)
-        status_text = (
-            "[green]● installed[/green]" if configured else "[yellow]○ not installed[/yellow]"
-        )
         console.print(
-            Panel(
-                f"\n  [bold]JUnit 5[/bold]   {status_text}\n",
-                title=f"[bold cyan]{project.name}[/bold cyan]",
-                border_style="cyan",
-                title_align="left",
-            )
+            "  [bold cyan][1][/bold cyan] JUnit 5"
+            "   [bold cyan][2][/bold cyan] NetBeans Templates"
+            "   [dim]q  Quit[/dim]\n"
         )
-        if configured:
-            console.print("  [bold cyan][2][/bold cyan] Uninstall JUnit 5   [dim]q  Quit[/dim]\n")
-            choice = Prompt.ask("  Choice", choices=["2", "q"])
-            if choice == "q":
-                return
-            with console.status("[cyan]Uninstalling JUnit 5...[/cyan]"):
-                run_uninstall(project)
-            console.print("\n  [green]✓[/green]  JUnit 5 uninstalled.\n")
+        top = Prompt.ask("  Choice", choices=["1", "2", "q"])
+        if top == "q":
+            return
+        if top == "2":
+            _templates_flow(console)
         else:
-            console.print("  [bold cyan][1][/bold cyan] Install JUnit 5   [dim]q  Quit[/dim]\n")
-            choice = Prompt.ask("  Choice", choices=["1", "q"])
-            if choice == "q":
-                return
-            with console.status("[cyan]Installing JUnit 5...[/cyan]"):
-                run_install(project)
-            console.print("\n  [green]✓[/green]  JUnit 5 installed.\n")
+            _junit5_flow(console)
     except KeyboardInterrupt:
         console.print("\n[dim]Cancelled.[/dim]")
     except PermissionError:
