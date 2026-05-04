@@ -405,12 +405,11 @@ def run_uninstall_mysql(project: Path) -> None:
 
 def _print_section(console: Console, heading: str = "", description: str = "") -> None:
     if heading:
-        body = f"\n  [bold]>> {heading}[/bold]"
+        body = f"[bold]>> {heading}[/bold]"
         if description:
-            body += f"\n\n  {description.strip()}"
-        body += "\n"
+            body += f"\n{description.strip()}"
     else:
-        body = "\n  Select an option to install:\n"
+        body = "Select an option to install"
     console.print(
         Panel(
             body,
