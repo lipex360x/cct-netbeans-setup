@@ -579,22 +579,24 @@ def _gitignore_flow(console: Console, title: str = "", description: str = "") ->
 
 def _docker_compose_flow(console: Console, title: str = "", description: str = "") -> str:
     _print_section(console, title, description)
-    if not is_docker_running():
-        console.print("\n  [red]✗[/red]  Docker is not running. Start Docker and try again.\n")
-        return _nav_choice()
     project = _ask_project_path()
     if project is None:
         return "quit"
+    docker_running = is_docker_running()
     configured = is_docker_compose_configured(project)
-    status_text = "[green]● configured[/green]" if configured else "[yellow]○ not configured[/yellow]"
+    daemon_text = "[green]● running[/green]" if docker_running else "[red]● not running[/red]"
+    compose_text = "[green]● configured[/green]" if configured else "[yellow]○ not configured[/yellow]"
     console.print(
         Panel(
-            f"\n  [bold]Docker Compose[/bold]   {status_text}\n",
+            f"  [bold]Docker daemon[/bold]      {daemon_text}\n  [bold]Docker Compose[/bold]     {compose_text}",
             title=f"[bold cyan]{project.name}[/bold cyan]",
             border_style="cyan",
             title_align="left",
         )
     )
+    if not docker_running:
+        console.print("  [dim]Start Docker Desktop and try again.[/dim]\n")
+        return _nav_choice()
     if configured:
         choices = [
             questionary.Choice("Remove docker-compose.yml", value="remove"),
