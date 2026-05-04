@@ -1,21 +1,17 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["rich>=13", "requests>=2"]
+# dependencies = ["rich>=13", "requests>=2", "questionary>=2"]
 # ///
 
 from __future__ import annotations
 
-import os
 import shutil
-import sys
-import tempfile
-import zipfile
 from pathlib import Path
 
+import questionary
 import requests
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Prompt
 
 MARKER_BEGIN = "<!-- cct-netbeans-setup:begin -->"
 MARKER_END = "<!-- cct-netbeans-setup:end -->"
@@ -24,21 +20,24 @@ GITHUB_REPO = "lipex360x/cct-netbeans-setup"
 GITHUB_BRANCH = "main"
 GITHUB_JARS_PATH = "libs/tests/junit5/jar"
 GITHUB_SETUP_ZIP_PATH = "templates/Template.zip"
+GITHUB_MYSQL_JAR_PATH = "libs/database/mysql/mysql-connector-j.jar"
+MYSQL_JAR_NAME = "mysql-connector-j.jar"
 
 _GITHUB_API = "https://api.github.com/repos"
 _GITHUB_RAW = "https://raw.githubusercontent.com"
 
-_TEMPLATE_PATHS = (
-    "config/Templates/Classes/Class.java",
-    "config/Templates/Classes/Main.java",
-    "config/Templates/UnitTests/JUnit5TestClass.java",
-)
+_JUNIT5_CLASSPATH_KEYS = ("javac.test.classpath=", "run.test.classpath=")
+_MYSQL_CLASSPATH_KEYS = ("javac.classpath=", "run.classpath=")
 
-_SAFE_PREFERENCES: frozenset[str] = frozenset(
-    {
-        "config/Preferences/org/apache/tools/ant/module.properties",
-        "config/Preferences/org/netbeans/core/multitabs/multi-tabs.properties",
-    }
+_STYLE = questionary.Style(
+    [
+        ("qmark", "fg:#00d7ff bold"),
+        ("question", "bold"),
+        ("answer", "fg:#00d7ff bold"),
+        ("pointer", "fg:#00d7ff bold"),
+        ("highlighted", "fg:#00d7ff bold"),
+        ("selected", "fg:#00d7ff"),
+    ]
 )
 
 
@@ -59,9 +58,16 @@ def is_junit5_configured(path: Path) -> bool:
     return MARKER_BEGIN in build_xml.read_text()
 
 
-def set_compile_on_save_false(props: Path) -> None:
-    private = props.parent / "private" / "private.properties"
-    for target in [props, private]:
+def is_mysql_configured(path: Path) -> bool:
+    if not (path / "lib" / "mysql" / MYSQL_JAR_NAME).is_file():
+        return False
+    properties = path / "nbproject" / "project.properties"
+    return f"file.reference.{MYSQL_JAR_NAME}=" in properties.read_text()
+
+
+def set_compile_on_save_false(properties: Path) -> None:
+    private = properties.parent / "private" / "private.properties"
+    for target in [properties, private]:
         if not target.is_file():
             continue
         content = target.read_text()
@@ -73,28 +79,32 @@ def set_compile_on_save_false(props: Path) -> None:
             target.write_text(content.rstrip("\n") + "\ncompile.on.save=false\n")
 
 
-def add_file_references(props: Path, jar_names: list[str]) -> None:
-    content = props.read_text()
+def add_file_references(
+    properties: Path, jar_names: list[str], lib_dir: str = "lib/junit5"
+) -> None:
+    content = properties.read_text()
     additions = []
     for name in jar_names:
         key = f"file.reference.{name}"
         if f"{key}=" not in content:
-            additions.append(f"{key}=lib/junit5/{name}")
+            additions.append(f"{key}={lib_dir}/{name}")
     if additions:
-        props.write_text(content.rstrip("\n") + "\n" + "\n".join(additions) + "\n")
+        properties.write_text(content.rstrip("\n") + "\n" + "\n".join(additions) + "\n")
 
 
-def modify_classpath(props: Path, jar_names: list[str]) -> None:
-    lines = props.read_text().splitlines(keepends=True)
+def modify_classpath(
+    properties: Path,
+    jar_names: list[str],
+    keys: tuple[str, ...] = _JUNIT5_CLASSPATH_KEYS,
+) -> None:
+    lines = properties.read_text().splitlines(keepends=True)
     result: list[str] = []
     in_block = False
     block_has_refs = False
 
     for line in lines:
         stripped = line.rstrip("\n")
-        if stripped.startswith("javac.test.classpath=") or stripped.startswith(
-            "run.test.classpath="
-        ):
+        if any(stripped.startswith(key) for key in keys):
             in_block = True
             block_has_refs = False
 
@@ -116,7 +126,7 @@ def modify_classpath(props: Path, jar_names: list[str]) -> None:
         else:
             result.append(line)
 
-    props.write_text("".join(result))
+    properties.write_text("".join(result))
 
 
 def inject_build_xml(build_xml: Path, override_content: str) -> None:
@@ -129,15 +139,15 @@ def inject_build_xml(build_xml: Path, override_content: str) -> None:
     build_xml.write_text(content)
 
 
-def remove_file_references(props: Path) -> None:
-    lines = props.read_text().splitlines(keepends=True)
+def remove_file_references(properties: Path, lib_dir: str = "lib/junit5") -> None:
+    lines = properties.read_text().splitlines(keepends=True)
     filtered = [
-        line for line in lines if not (line.startswith("file.reference.") and "lib/junit5/" in line)
+        line for line in lines if not (line.startswith("file.reference.") and f"{lib_dir}/" in line)
     ]
-    props.write_text("".join(filtered))
+    properties.write_text("".join(filtered))
 
 
-def revert_classpath(props: Path) -> None:
+def revert_classpath(properties: Path, keys: tuple[str, ...] = _JUNIT5_CLASSPATH_KEYS) -> None:
     def flush(buffer: list[str]) -> list[str]:
         filtered = [line for line in buffer if "${file.reference." not in line]
         if len(filtered) < len(buffer) and filtered:
@@ -146,16 +156,14 @@ def revert_classpath(props: Path) -> None:
                 filtered[-1] = last[:-2] + "\n"
         return filtered
 
-    lines = props.read_text().splitlines(keepends=True)
+    lines = properties.read_text().splitlines(keepends=True)
     result: list[str] = []
     in_block = False
     buffer: list[str] = []
 
     for line in lines:
         stripped = line.rstrip("\n")
-        if stripped.startswith("javac.test.classpath=") or stripped.startswith(
-            "run.test.classpath="
-        ):
+        if any(stripped.startswith(key) for key in keys):
             in_block = True
 
         if in_block:
@@ -170,7 +178,7 @@ def revert_classpath(props: Path) -> None:
     if buffer:
         result.extend(flush(buffer))
 
-    props.write_text("".join(result))
+    properties.write_text("".join(result))
 
 
 def remove_build_xml_override(build_xml: Path) -> None:
@@ -190,8 +198,8 @@ def remove_jar_directory(project: Path) -> None:
 
 
 def fetch_jar_names() -> list[str]:
-    url = f"{_GITHUB_API}/{GITHUB_REPO}/contents/{GITHUB_JARS_PATH}?ref={GITHUB_BRANCH}"
-    response = requests.get(url, timeout=10)
+    api_url = f"{_GITHUB_API}/{GITHUB_REPO}/contents/{GITHUB_JARS_PATH}?ref={GITHUB_BRANCH}"
+    response = requests.get(api_url, timeout=10)
     response.raise_for_status()
     entries = response.json()
     return [
@@ -207,10 +215,31 @@ def download_jars(destination: Path, jar_names: list[str]) -> None:
         target = destination / name
         if target.exists():
             continue
-        url = f"{_GITHUB_RAW}/{GITHUB_REPO}/{GITHUB_BRANCH}/{GITHUB_JARS_PATH}/{name}"
-        response = requests.get(url, timeout=30)
+        jar_url = f"{_GITHUB_RAW}/{GITHUB_REPO}/{GITHUB_BRANCH}/{GITHUB_JARS_PATH}/{name}"
+        response = requests.get(jar_url, timeout=30)
         response.raise_for_status()
         target.write_bytes(response.content)
+
+
+def download_mysql_jar(destination: Path) -> None:
+    destination.mkdir(parents=True, exist_ok=True)
+    target = destination / MYSQL_JAR_NAME
+    if target.exists():
+        return
+    jar_url = f"{_GITHUB_RAW}/{GITHUB_REPO}/{GITHUB_BRANCH}/{GITHUB_MYSQL_JAR_PATH}"
+    response = requests.get(jar_url, timeout=30)
+    response.raise_for_status()
+    target.write_bytes(response.content)
+
+
+def download_template_zip(destination: Path) -> Path:
+    destination.mkdir(parents=True, exist_ok=True)
+    zip_url = f"{_GITHUB_RAW}/{GITHUB_REPO}/{GITHUB_BRANCH}/{GITHUB_SETUP_ZIP_PATH}"
+    response = requests.get(zip_url, timeout=30)
+    response.raise_for_status()
+    out = destination / "Template.zip"
+    out.write_bytes(response.content)
+    return out
 
 
 _DEPENDS_SINGLE = "init,compile-test-single,-pre-test-run-single"
@@ -286,145 +315,114 @@ def run_install(project: Path) -> None:
     validate_netbeans_project(project)
     jar_names = fetch_jar_names()
     download_jars(project / "lib" / "junit5", jar_names)
-    props = project / "nbproject" / "project.properties"
-    set_compile_on_save_false(props)
-    add_file_references(props, jar_names)
-    modify_classpath(props, jar_names)
+    properties = project / "nbproject" / "project.properties"
+    set_compile_on_save_false(properties)
+    add_file_references(properties, jar_names)
+    modify_classpath(properties, jar_names)
     inject_build_xml(project / "build.xml", _BUILD_OVERRIDE)
 
 
 def run_uninstall(project: Path) -> None:
-    props = project / "nbproject" / "project.properties"
+    properties = project / "nbproject" / "project.properties"
     remove_jar_directory(project)
-    remove_file_references(props)
-    revert_classpath(props)
+    remove_file_references(properties)
+    revert_classpath(properties)
     remove_build_xml_override(project / "build.xml")
 
 
-def _netbeans_base() -> Path:
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "NetBeans"
-    if sys.platform == "win32":
-        appdata = os.environ.get("APPDATA")
-        return (Path(appdata) if appdata else Path.home()) / "NetBeans"
-    return Path.home() / ".netbeans"
+def run_install_mysql(project: Path) -> None:
+    validate_netbeans_project(project)
+    download_mysql_jar(project / "lib" / "mysql")
+    properties = project / "nbproject" / "project.properties"
+    add_file_references(properties, [MYSQL_JAR_NAME], lib_dir="lib/mysql")
+    modify_classpath(properties, [MYSQL_JAR_NAME], keys=_MYSQL_CLASSPATH_KEYS)
 
 
-def find_netbeans_user_dir(base: Path | None = None) -> Path | None:
-    root = base if base is not None else _netbeans_base()
-    if not root.is_dir():
-        return None
-    candidates = [d for d in root.iterdir() if d.is_dir()]
-    return max(candidates, key=lambda d: d.name) if candidates else None
+def run_uninstall_mysql(project: Path) -> None:
+    jar_dir = project / "lib" / "mysql"
+    if jar_dir.is_dir():
+        shutil.rmtree(jar_dir)
+    properties = project / "nbproject" / "project.properties"
+    remove_file_references(properties, lib_dir="lib/mysql")
+    revert_classpath(properties, keys=_MYSQL_CLASSPATH_KEYS)
 
 
-def are_templates_installed(netbeans_dir: Path) -> bool:
-    return all((netbeans_dir / path).is_file() for path in _TEMPLATE_PATHS)
-
-
-def _backup_dir(netbeans_dir: Path) -> Path:
-    return netbeans_dir / "cct-setup-backup"
-
-
-def is_setup_backup_present(netbeans_dir: Path) -> bool:
-    return (_backup_dir(netbeans_dir) / "new-files.txt").is_file()
-
-
-def _setup_entry_allowed(name: str) -> bool:
-    if Path(name).name in {".DS_Store", ".nbattrs"}:
-        return False
-    if name.startswith("config/Editors/") or name.startswith("config/Templates/"):
-        return True
-    if name == "config/Preferences/laf.properties":
-        return sys.platform == "darwin"
-    return name in _SAFE_PREFERENCES
-
-
-def download_and_apply_setup(netbeans_dir: Path) -> None:
-    url = f"{_GITHUB_RAW}/{GITHUB_REPO}/{GITHUB_BRANCH}/{GITHUB_SETUP_ZIP_PATH}"
-    response = requests.get(url, timeout=30)
-    response.raise_for_status()
-    new_files: list[str] = []
-    with tempfile.TemporaryDirectory() as temporary_dir:
-        archive_path = Path(temporary_dir) / "setup.zip"
-        archive_path.write_bytes(response.content)
-        with zipfile.ZipFile(archive_path) as archive:
-            for member in archive.namelist():
-                if member.endswith("/") or not _setup_entry_allowed(member):
-                    continue
-                target = netbeans_dir / member
-                if target.is_file():
-                    continue
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(archive.read(member))
-                new_files.append(member)
-    if new_files:
-        backup = _backup_dir(netbeans_dir)
-        backup.mkdir(parents=True, exist_ok=True)
-        (backup / "new-files.txt").write_text("\n".join(new_files) + "\n")
-
-
-def rollback_setup(netbeans_dir: Path) -> None:
-    backup = _backup_dir(netbeans_dir)
-    record = backup / "new-files.txt"
-    if not record.is_file():
-        return
-    for path in record.read_text().splitlines():
-        target = netbeans_dir / path
-        if target.is_file():
-            target.unlink()
-    shutil.rmtree(backup)
-
-
-def run_install_templates(netbeans_dir: Path) -> None:
-    download_and_apply_setup(netbeans_dir)
-
-
-def _templates_flow(console: Console) -> None:
-    netbeans_dir = find_netbeans_user_dir()
-    if netbeans_dir is None:
-        console.print("\n  [red]✗[/red]  NetBeans user directory not found.\n")
-        return
-    installed = are_templates_installed(netbeans_dir)
-    status_text = "[green]● installed[/green]" if installed else "[yellow]○ not installed[/yellow]"
-    console.print(
-        Panel(
-            f"\n  [bold]Templates[/bold]   {status_text}\n  [dim]{netbeans_dir}[/dim]\n",
-            title="[bold cyan]NetBeans Templates[/bold cyan]",
-            border_style="cyan",
-            title_align="left",
-        )
-    )
-    if installed:
-        if not is_setup_backup_present(netbeans_dir):
-            console.print("\n  [green]✓[/green]  Templates already installed.\n")
-            return
-        console.print("  [bold cyan][3][/bold cyan] Rollback Templates   [dim]q  Quit[/dim]\n")
-        choice = Prompt.ask("  Choice", choices=["3", "q"])
-        if choice == "q":
-            return
-        with console.status("[cyan]Rolling back templates...[/cyan]"):
-            rollback_setup(netbeans_dir)
-        console.print("\n  [green]✓[/green]  Templates rolled back.\n")
-        return
-    console.print("  [bold cyan][3][/bold cyan] Install Templates   [dim]q  Quit[/dim]\n")
-    choice = Prompt.ask("  Choice", choices=["3", "q"])
-    if choice == "q":
-        return
-    with console.status("[cyan]Installing templates...[/cyan]"):
-        run_install_templates(netbeans_dir)
-    console.print("\n  [green]✓[/green]  Templates installed.\n")
-
-
-def _junit5_flow(console: Console) -> None:
+def _ask_project_path() -> Path | None:
     cwd = Path.cwd()
-    raw = Prompt.ask(f"\nNetBeans project path [dim](. = {cwd})[/dim]")
-    project = clean_path(raw)
+    raw = questionary.text(f"NetBeans project path (. = {cwd}):", style=_STYLE).ask()
+    if raw is None:
+        return None
+    return clean_path(raw)
+
+
+def _nav_choice() -> str:
+    result = questionary.select(
+        "",
+        choices=[
+            questionary.Choice("Back to menu", value="back"),
+            questionary.Choice("Quit", value="quit"),
+        ],
+        style=_STYLE,
+    ).ask()
+    return result or "quit"
+
+
+def _database_flow(console: Console) -> str:
+    project = _ask_project_path()
+    if project is None:
+        return "quit"
     try:
         validate_netbeans_project(project)
     except ValueError as error:
         console.print(f"\n  [red]✗[/red]  {error}\n")
-        return
+        return _nav_choice()
+    configured = is_mysql_configured(project)
+    status_text = "[green]● installed[/green]" if configured else "[yellow]○ not installed[/yellow]"
+    console.print(
+        Panel(
+            f"\n  [bold]MySQL Connector[/bold]   {status_text}\n",
+            title=f"[bold cyan]{project.name}[/bold cyan]",
+            border_style="cyan",
+            title_align="left",
+        )
+    )
+    if configured:
+        choices = [
+            questionary.Choice("Uninstall MySQL Connector", value="uninstall"),
+            questionary.Choice("Back to menu", value="back"),
+            questionary.Choice("Quit", value="quit"),
+        ]
+    else:
+        choices = [
+            questionary.Choice("Install MySQL Connector", value="install"),
+            questionary.Choice("Back to menu", value="back"),
+            questionary.Choice("Quit", value="quit"),
+        ]
+    action = questionary.select("", choices=choices, style=_STYLE).ask()
+    if action in (None, "back"):
+        return "back"
+    if action == "quit":
+        return "quit"
+    if action == "install":
+        with console.status("[cyan]Downloading MySQL Connector...[/cyan]"):
+            run_install_mysql(project)
+        console.print("\n  [green]✓[/green]  MySQL Connector installed.\n")
+    else:
+        with console.status("[cyan]Uninstalling MySQL Connector...[/cyan]"):
+            run_uninstall_mysql(project)
+        console.print("\n  [green]✓[/green]  MySQL Connector uninstalled.\n")
+    return _nav_choice()
+
+
+def _junit5_flow(console: Console) -> str:
+    project = _ask_project_path()
+    if project is None:
+        return "quit"
+    try:
+        validate_netbeans_project(project)
+    except ValueError as error:
+        console.print(f"\n  [red]✗[/red]  {error}\n")
+        return _nav_choice()
     configured = is_junit5_configured(project)
     status_text = "[green]● installed[/green]" if configured else "[yellow]○ not installed[/yellow]"
     console.print(
@@ -436,21 +434,55 @@ def _junit5_flow(console: Console) -> None:
         )
     )
     if configured:
-        console.print("  [bold cyan][2][/bold cyan] Uninstall JUnit 5   [dim]q  Quit[/dim]\n")
-        choice = Prompt.ask("  Choice", choices=["2", "q"])
-        if choice == "q":
-            return
-        with console.status("[cyan]Uninstalling JUnit 5...[/cyan]"):
-            run_uninstall(project)
-        console.print("\n  [green]✓[/green]  JUnit 5 uninstalled.\n")
+        choices = [
+            questionary.Choice("Uninstall JUnit 5", value="uninstall"),
+            questionary.Choice("Back to menu", value="back"),
+            questionary.Choice("Quit", value="quit"),
+        ]
     else:
-        console.print("  [bold cyan][1][/bold cyan] Install JUnit 5   [dim]q  Quit[/dim]\n")
-        choice = Prompt.ask("  Choice", choices=["1", "q"])
-        if choice == "q":
-            return
+        choices = [
+            questionary.Choice("Install JUnit 5", value="install"),
+            questionary.Choice("Back to menu", value="back"),
+            questionary.Choice("Quit", value="quit"),
+        ]
+    action = questionary.select("", choices=choices, style=_STYLE).ask()
+    if action in (None, "back"):
+        return "back"
+    if action == "quit":
+        return "quit"
+    if action == "install":
         with console.status("[cyan]Installing JUnit 5...[/cyan]"):
             run_install(project)
         console.print("\n  [green]✓[/green]  JUnit 5 installed.\n")
+    else:
+        with console.status("[cyan]Uninstalling JUnit 5...[/cyan]"):
+            run_uninstall(project)
+        console.print("\n  [green]✓[/green]  JUnit 5 uninstalled.\n")
+    return _nav_choice()
+
+
+def _templates_flow(console: Console) -> str:
+    cwd = Path.cwd()
+    raw = questionary.text(f"Save Template.zip to (. = {cwd}):", default=".", style=_STYLE).ask()
+    if raw is None:
+        return "quit"
+    destination = clean_path(raw)
+    with console.status("[cyan]Downloading Template.zip...[/cyan]"):
+        saved = download_template_zip(destination)
+    console.print(
+        Panel(
+            f"\n  [green]✓[/green]  Saved to [bold]{saved}[/bold]\n\n"
+            "  [bold]To apply in NetBeans:[/bold]\n"
+            "  1. Open NetBeans\n"
+            "  2. Go to [bold cyan]Tools → Options → Import[/bold cyan]\n"
+            "  3. Select the downloaded [bold]Template.zip[/bold]\n"
+            "  4. Restart NetBeans\n",
+            title="[bold cyan]NetBeans Templates[/bold cyan]",
+            border_style="cyan",
+            title_align="left",
+        )
+    )
+    return _nav_choice()
 
 
 def main() -> None:
@@ -463,18 +495,27 @@ def main() -> None:
         )
     )
     try:
-        console.print(
-            "  [bold cyan][1][/bold cyan] JUnit 5"
-            "   [bold cyan][2][/bold cyan] NetBeans Templates"
-            "   [dim]q  Quit[/dim]\n"
-        )
-        top = Prompt.ask("  Choice", choices=["1", "2", "q"])
-        if top == "q":
-            return
-        if top == "2":
-            _templates_flow(console)
-        else:
-            _junit5_flow(console)
+        while True:
+            choice = questionary.select(
+                "Select an option:",
+                choices=[
+                    questionary.Choice("[1] Database", value="database"),
+                    questionary.Choice("[2] JUnit 5", value="junit5"),
+                    questionary.Choice("[3] Templates", value="templates"),
+                    questionary.Choice("Quit", value="quit"),
+                ],
+                style=_STYLE,
+            ).ask()
+            if choice in (None, "quit"):
+                break
+            if choice == "database":
+                result = _database_flow(console)
+            elif choice == "junit5":
+                result = _junit5_flow(console)
+            else:
+                result = _templates_flow(console)
+            if result == "quit":
+                break
     except KeyboardInterrupt:
         console.print("\n[dim]Cancelled.[/dim]")
     except PermissionError:

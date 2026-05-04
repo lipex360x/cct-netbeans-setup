@@ -7,14 +7,18 @@ import pytest
 
 from setup import (
     _BUILD_OVERRIDE,
+    _MYSQL_CLASSPATH_KEYS,
     MARKER_BEGIN,
     MARKER_END,
+    MYSQL_JAR_NAME,
     add_file_references,
     clean_path,
     download_jars,
+    download_mysql_jar,
     fetch_jar_names,
     inject_build_xml,
     is_junit5_configured,
+    is_mysql_configured,
     main,
     modify_classpath,
     remove_build_xml_override,
@@ -22,7 +26,9 @@ from setup import (
     remove_jar_directory,
     revert_classpath,
     run_install,
+    run_install_mysql,
     run_uninstall,
+    run_uninstall_mysql,
     set_compile_on_save_false,
     validate_netbeans_project,
 )
@@ -40,6 +46,20 @@ PROPS_ORIGINAL = (
     "    ${build.test.classes.dir}\n"
 )
 
+PROPS_WITH_MAIN_CLASSPATH = (
+    "compile.on.save=false\n"
+    "javac.classpath=\n"
+    "run.classpath=\\\n"
+    "    ${javac.classpath}:\\\n"
+    "    ${build.classes.dir}\n"
+    "javac.test.classpath=\\\n"
+    "    ${javac.classpath}:\\\n"
+    "    ${build.test.classes.dir}\n"
+    "run.test.classpath=\\\n"
+    "    ${javac.test.classpath}:\\\n"
+    "    ${build.test.classes.dir}\n"
+)
+
 BUILD_XML_ORIGINAL = (
     '<?xml version="1.0" encoding="UTF-8"?>\n'
     '<project name="TestProject" default="default" basedir=".">\n'
@@ -48,6 +68,8 @@ BUILD_XML_ORIGINAL = (
 )
 
 OVERRIDE_CONTENT = '<target name="-do-test-run">\n    <junitlauncher/>\n</target>\n'
+
+MYSQL_JAR_BYTES = b"fake-mysql-jar"
 
 
 @pytest.fixture()  # type: ignore[untyped-decorator]
@@ -59,7 +81,15 @@ def project(tmp_path: Path) -> Path:
 
 
 @pytest.fixture()  # type: ignore[untyped-decorator]
-def props(project: Path) -> Path:
+def mysql_project(tmp_path: Path) -> Path:
+    (tmp_path / "nbproject").mkdir()
+    (tmp_path / "build.xml").write_text(BUILD_XML_ORIGINAL)
+    (tmp_path / "nbproject" / "project.properties").write_text(PROPS_WITH_MAIN_CLASSPATH)
+    return tmp_path
+
+
+@pytest.fixture()  # type: ignore[untyped-decorator]
+def properties(project: Path) -> Path:
     return project / "nbproject" / "project.properties"
 
 
@@ -79,7 +109,7 @@ class TestValidateNetbeansProject:
         with pytest.raises(ValueError, match="build.xml"):
             validate_netbeans_project(tmp_path)
 
-    def test_raises_when_props_missing(self, tmp_path: Path) -> None:
+    def test_raises_when_properties_missing(self, tmp_path: Path) -> None:
         (tmp_path / "build.xml").write_text("")
         with pytest.raises(ValueError, match="project.properties"):
             validate_netbeans_project(tmp_path)
@@ -109,79 +139,106 @@ class TestIsJunit5Configured:
         assert is_junit5_configured(project) is True
 
 
+class TestIsMysqlConfigured:
+    def test_false_when_jar_missing(self, mysql_project: Path) -> None:
+        assert is_mysql_configured(mysql_project) is False
+
+    def test_false_when_jar_exists_but_no_reference(self, mysql_project: Path) -> None:
+        jar_dir = mysql_project / "lib" / "mysql"
+        jar_dir.mkdir(parents=True)
+        (jar_dir / MYSQL_JAR_NAME).write_bytes(b"fake")
+        assert is_mysql_configured(mysql_project) is False
+
+    def test_true_when_jar_and_reference_present(self, mysql_project: Path) -> None:
+        jar_dir = mysql_project / "lib" / "mysql"
+        jar_dir.mkdir(parents=True)
+        (jar_dir / MYSQL_JAR_NAME).write_bytes(b"fake")
+        properties = mysql_project / "nbproject" / "project.properties"
+        properties.write_text(
+            properties.read_text() + f"file.reference.{MYSQL_JAR_NAME}=lib/mysql/{MYSQL_JAR_NAME}\n"
+        )
+        assert is_mysql_configured(mysql_project) is True
+
+
 class TestSetCompileOnSaveFalse:
-    def test_changes_true_to_false(self, props: Path) -> None:
-        set_compile_on_save_false(props)
-        assert "compile.on.save=false" in props.read_text()
+    def test_changes_true_to_false(self, properties: Path) -> None:
+        set_compile_on_save_false(properties)
+        assert "compile.on.save=false" in properties.read_text()
 
-    def test_removes_true_value(self, props: Path) -> None:
-        set_compile_on_save_false(props)
-        assert "compile.on.save=true" not in props.read_text()
+    def test_removes_true_value(self, properties: Path) -> None:
+        set_compile_on_save_false(properties)
+        assert "compile.on.save=true" not in properties.read_text()
 
-    def test_idempotent(self, props: Path) -> None:
-        set_compile_on_save_false(props)
-        set_compile_on_save_false(props)
-        assert props.read_text().count("compile.on.save=false") == 1
+    def test_idempotent(self, properties: Path) -> None:
+        set_compile_on_save_false(properties)
+        set_compile_on_save_false(properties)
+        assert properties.read_text().count("compile.on.save=false") == 1
 
-    def test_leaves_other_properties_unchanged(self, props: Path) -> None:
-        set_compile_on_save_false(props)
-        content = props.read_text()
+    def test_leaves_other_properties_unchanged(self, properties: Path) -> None:
+        set_compile_on_save_false(properties)
+        content = properties.read_text()
         assert "javac.classpath=" in content
         assert "javac.test.classpath=\\" in content
 
     def test_adds_property_when_absent(self, tmp_path: Path) -> None:
-        props = tmp_path / "project.properties"
-        props.write_text("javac.classpath=\n")
-        set_compile_on_save_false(props)
-        assert "compile.on.save=false" in props.read_text()
+        properties = tmp_path / "project.properties"
+        properties.write_text("javac.classpath=\n")
+        set_compile_on_save_false(properties)
+        assert "compile.on.save=false" in properties.read_text()
 
-    def test_also_updates_private_properties_when_present(self, props: Path) -> None:
-        private_dir = props.parent / "private"
+    def test_also_updates_private_properties_when_present(self, properties: Path) -> None:
+        private_dir = properties.parent / "private"
         private_dir.mkdir()
         private = private_dir / "private.properties"
         private.write_text("compile.on.save=true\nuser.properties.file=/some/path\n")
-        set_compile_on_save_false(props)
+        set_compile_on_save_false(properties)
         assert "compile.on.save=false" in private.read_text()
         assert "compile.on.save=true" not in private.read_text()
 
-    def test_skips_private_properties_when_absent(self, props: Path) -> None:
-        set_compile_on_save_false(props)
-        assert "compile.on.save=false" in props.read_text()
+    def test_skips_private_properties_when_absent(self, properties: Path) -> None:
+        set_compile_on_save_false(properties)
+        assert "compile.on.save=false" in properties.read_text()
 
 
 class TestAddFileReferences:
-    def test_adds_reference_for_each_jar(self, props: Path) -> None:
-        add_file_references(props, JAR_NAMES)
-        content = props.read_text()
+    def test_adds_reference_for_each_jar(self, properties: Path) -> None:
+        add_file_references(properties, JAR_NAMES)
+        content = properties.read_text()
         assert (
             "file.reference.junit-jupiter-api-5.10.3.jar=lib/junit5/junit-jupiter-api-5.10.3.jar"
             in content
         )
         assert "file.reference.opentest4j-1.3.0.jar=lib/junit5/opentest4j-1.3.0.jar" in content
 
-    def test_idempotent(self, props: Path) -> None:
-        add_file_references(props, JAR_NAMES)
-        add_file_references(props, JAR_NAMES)
-        content = props.read_text()
+    def test_idempotent(self, properties: Path) -> None:
+        add_file_references(properties, JAR_NAMES)
+        add_file_references(properties, JAR_NAMES)
+        content = properties.read_text()
         assert content.count("file.reference.junit-jupiter-api-5.10.3.jar") == 1
 
-    def test_leaves_original_properties_intact(self, props: Path) -> None:
-        add_file_references(props, JAR_NAMES)
-        content = props.read_text()
+    def test_leaves_original_properties_intact(self, properties: Path) -> None:
+        add_file_references(properties, JAR_NAMES)
+        content = properties.read_text()
         assert "compile.on.save=true" in content
         assert "javac.test.classpath=\\" in content
 
+    def test_uses_custom_lib_dir(self, properties: Path) -> None:
+        add_file_references(properties, [MYSQL_JAR_NAME], lib_dir="lib/mysql")
+        assert (
+            f"file.reference.{MYSQL_JAR_NAME}=lib/mysql/{MYSQL_JAR_NAME}" in properties.read_text()
+        )
+
 
 class TestModifyClasspath:
-    def test_appends_jar_refs_to_javac_test_classpath(self, props: Path) -> None:
-        modify_classpath(props, JAR_NAMES)
-        content = props.read_text()
+    def test_appends_jar_refs_to_javac_test_classpath(self, properties: Path) -> None:
+        modify_classpath(properties, JAR_NAMES)
+        content = properties.read_text()
         assert "${file.reference.junit-jupiter-api-5.10.3.jar}" in content
         assert "${file.reference.opentest4j-1.3.0.jar}" in content
 
-    def test_appends_jar_refs_to_run_test_classpath(self, props: Path) -> None:
-        modify_classpath(props, JAR_NAMES)
-        lines = props.read_text().splitlines()
+    def test_appends_jar_refs_to_run_test_classpath(self, properties: Path) -> None:
+        modify_classpath(properties, JAR_NAMES)
+        lines = properties.read_text().splitlines()
         in_run_block = False
         found = False
         for line in lines:
@@ -198,19 +255,25 @@ class TestModifyClasspath:
                 in_run_block = False
         assert found
 
-    def test_last_jar_has_no_continuation(self, props: Path) -> None:
-        modify_classpath(props, JAR_NAMES)
-        lines = props.read_text().splitlines()
+    def test_last_jar_has_no_continuation(self, properties: Path) -> None:
+        modify_classpath(properties, JAR_NAMES)
+        lines = properties.read_text().splitlines()
         last_jar_line = next(
             line for line in reversed(lines) if "file.reference.opentest4j" in line
         )
         assert not last_jar_line.rstrip().endswith("\\")
 
-    def test_idempotent(self, props: Path) -> None:
-        modify_classpath(props, JAR_NAMES)
-        modify_classpath(props, JAR_NAMES)
-        content = props.read_text()
+    def test_idempotent(self, properties: Path) -> None:
+        modify_classpath(properties, JAR_NAMES)
+        modify_classpath(properties, JAR_NAMES)
+        content = properties.read_text()
         assert content.count("file.reference.junit-jupiter-api-5.10.3.jar") == 2
+
+    def test_custom_keys_target_correct_blocks(self, mysql_project: Path) -> None:
+        properties = mysql_project / "nbproject" / "project.properties"
+        modify_classpath(properties, [MYSQL_JAR_NAME], keys=_MYSQL_CLASSPATH_KEYS)
+        content = properties.read_text()
+        assert f"${{file.reference.{MYSQL_JAR_NAME}}}" in content
 
 
 class TestInjectBuildXml:
@@ -261,49 +324,57 @@ class TestBuildOverride:
 
 
 class TestRemoveFileReferences:
-    def test_removes_junit5_references(self, props: Path) -> None:
-        add_file_references(props, JAR_NAMES)
-        remove_file_references(props)
-        content = props.read_text()
+    def test_removes_junit5_references(self, properties: Path) -> None:
+        add_file_references(properties, JAR_NAMES)
+        remove_file_references(properties)
+        content = properties.read_text()
         assert "file.reference.junit-jupiter-api-5.10.3.jar" not in content
         assert "file.reference.opentest4j-1.3.0.jar" not in content
 
-    def test_leaves_other_references_intact(self, props: Path) -> None:
-        props.write_text(
+    def test_leaves_other_references_intact(self, properties: Path) -> None:
+        properties.write_text(
             PROPS_ORIGINAL
             + "file.reference.other-lib.jar=some/other/path/other-lib.jar\n"
             + "file.reference.junit-jupiter-api-5.10.3.jar"
             "=lib/junit5/junit-jupiter-api-5.10.3.jar\n"
         )
-        remove_file_references(props)
-        content = props.read_text()
+        remove_file_references(properties)
+        content = properties.read_text()
         assert "file.reference.other-lib.jar" in content
 
-    def test_noop_when_no_references(self, props: Path) -> None:
-        original = props.read_text()
-        remove_file_references(props)
-        assert props.read_text() == original
+    def test_noop_when_no_references(self, properties: Path) -> None:
+        original = properties.read_text()
+        remove_file_references(properties)
+        assert properties.read_text() == original
+
+    def test_custom_lib_dir_removes_only_matching(self, properties: Path) -> None:
+        add_file_references(properties, JAR_NAMES)
+        add_file_references(properties, [MYSQL_JAR_NAME], lib_dir="lib/mysql")
+        remove_file_references(properties, lib_dir="lib/mysql")
+        content = properties.read_text()
+        assert f"file.reference.{MYSQL_JAR_NAME}" not in content
+        assert "file.reference.junit-jupiter-api-5.10.3.jar" in content
 
 
 class TestRevertClasspath:
-    def test_removes_jar_refs_from_classpath(self, props: Path) -> None:
-        modify_classpath(props, JAR_NAMES)
-        revert_classpath(props)
-        content = props.read_text()
+    def test_removes_jar_refs_from_classpath(self, properties: Path) -> None:
+        modify_classpath(properties, JAR_NAMES)
+        revert_classpath(properties)
+        content = properties.read_text()
         assert "${file.reference.junit-jupiter-api-5.10.3.jar}" not in content
         assert "${file.reference.opentest4j-1.3.0.jar}" not in content
 
-    def test_restores_original_last_line_without_continuation(self, props: Path) -> None:
-        modify_classpath(props, JAR_NAMES)
-        revert_classpath(props)
-        lines = props.read_text().splitlines()
+    def test_restores_original_last_line_without_continuation(self, properties: Path) -> None:
+        modify_classpath(properties, JAR_NAMES)
+        revert_classpath(properties)
+        lines = properties.read_text().splitlines()
         build_classes_line = next(line for line in lines if "${build.classes.dir}" in line)
         assert not build_classes_line.rstrip().endswith("\\")
 
-    def test_noop_when_no_jar_refs(self, props: Path) -> None:
-        original = props.read_text()
-        revert_classpath(props)
-        assert props.read_text() == original
+    def test_noop_when_no_jar_refs(self, properties: Path) -> None:
+        original = properties.read_text()
+        revert_classpath(properties)
+        assert properties.read_text() == original
 
 
 class TestRemoveBuildXmlOverride:
@@ -416,7 +487,89 @@ class TestDownloadJars:
             download_jars(destination, JAR_NAMES)
 
         called_urls = [call.args[0] for call in mock_get.call_args_list]
-        assert not any(JAR_NAMES[0] in url for url in called_urls)
+        assert not any(JAR_NAMES[0] in request_url for request_url in called_urls)
+
+
+class TestDownloadMysqlJar:
+    @patch("requests.get")
+    def test_creates_dest_and_writes_jar(self, mock_get: MagicMock, tmp_path: Path) -> None:
+        destination = tmp_path / "lib" / "mysql"
+        mock_get.return_value.content = MYSQL_JAR_BYTES
+        mock_get.return_value.raise_for_status = MagicMock()
+        download_mysql_jar(destination)
+        assert (destination / MYSQL_JAR_NAME).read_bytes() == MYSQL_JAR_BYTES
+
+    @patch("requests.get")
+    def test_skips_existing_jar(self, mock_get: MagicMock, tmp_path: Path) -> None:
+        destination = tmp_path / "lib" / "mysql"
+        destination.mkdir(parents=True)
+        (destination / MYSQL_JAR_NAME).write_bytes(b"existing")
+        mock_get.return_value.content = MYSQL_JAR_BYTES
+        mock_get.return_value.raise_for_status = MagicMock()
+        download_mysql_jar(destination)
+        mock_get.assert_not_called()
+        assert (destination / MYSQL_JAR_NAME).read_bytes() == b"existing"
+
+
+class TestRunInstallMysql:
+    def test_raises_for_invalid_project(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            run_install_mysql(tmp_path)
+
+    def test_downloads_jar_to_lib_mysql(self, mysql_project: Path) -> None:
+        with patch("setup.download_mysql_jar") as mock_download:
+            run_install_mysql(mysql_project)
+        mock_download.assert_called_once_with(mysql_project / "lib" / "mysql")
+
+    def test_adds_file_reference(self, mysql_project: Path) -> None:
+        with patch("setup.download_mysql_jar"):
+            run_install_mysql(mysql_project)
+        content = (mysql_project / "nbproject" / "project.properties").read_text()
+        assert f"file.reference.{MYSQL_JAR_NAME}=lib/mysql/{MYSQL_JAR_NAME}" in content
+
+    def test_adds_to_javac_classpath(self, mysql_project: Path) -> None:
+        with patch("setup.download_mysql_jar"):
+            run_install_mysql(mysql_project)
+        content = (mysql_project / "nbproject" / "project.properties").read_text()
+        assert f"${{file.reference.{MYSQL_JAR_NAME}}}" in content
+
+    def test_idempotent(self, mysql_project: Path) -> None:
+        with patch("setup.download_mysql_jar"):
+            run_install_mysql(mysql_project)
+            run_install_mysql(mysql_project)
+        content = (mysql_project / "nbproject" / "project.properties").read_text()
+        assert content.count(f"file.reference.{MYSQL_JAR_NAME}=lib/mysql/") == 1
+
+
+class TestRunUninstallMysql:
+    def test_removes_lib_mysql_directory(self, mysql_project: Path) -> None:
+        jar_dir = mysql_project / "lib" / "mysql"
+        jar_dir.mkdir(parents=True)
+        (jar_dir / MYSQL_JAR_NAME).write_bytes(b"fake")
+        run_uninstall_mysql(mysql_project)
+        assert not jar_dir.exists()
+
+    def test_removes_file_references(self, mysql_project: Path) -> None:
+        properties = mysql_project / "nbproject" / "project.properties"
+        add_file_references(properties, [MYSQL_JAR_NAME], lib_dir="lib/mysql")
+        run_uninstall_mysql(mysql_project)
+        assert f"file.reference.{MYSQL_JAR_NAME}" not in properties.read_text()
+
+    def test_reverts_classpath(self, mysql_project: Path) -> None:
+        properties = mysql_project / "nbproject" / "project.properties"
+        modify_classpath(properties, [MYSQL_JAR_NAME], keys=_MYSQL_CLASSPATH_KEYS)
+        run_uninstall_mysql(mysql_project)
+        assert f"${{file.reference.{MYSQL_JAR_NAME}}}" not in properties.read_text()
+
+    def test_noop_when_lib_dir_missing(self, mysql_project: Path) -> None:
+        run_uninstall_mysql(mysql_project)
+
+    def test_full_install_uninstall_cycle(self, mysql_project: Path) -> None:
+        with patch("setup.download_mysql_jar"):
+            run_install_mysql(mysql_project)
+        run_uninstall_mysql(mysql_project)
+        properties = (mysql_project / "nbproject" / "project.properties").read_text()
+        assert f"file.reference.{MYSQL_JAR_NAME}" not in properties
 
 
 class TestMain:
@@ -424,155 +577,153 @@ class TestMain:
         with (
             patch("setup.Console"),
             patch("setup.Panel"),
-            patch("setup.Prompt") as mock_prompt,
+            patch("setup.questionary") as mock_q,
         ):
-            mock_prompt.ask.side_effect = KeyboardInterrupt
+            mock_q.select.return_value.ask.side_effect = KeyboardInterrupt
             main()
 
-    def test_handles_invalid_project_gracefully(self, tmp_path: Path) -> None:
-        with (
-            patch("setup.Console") as mock_console_class,
-            patch("setup.Panel"),
-            patch("setup.Prompt") as mock_prompt,
-        ):
-            mock_prompt.ask.side_effect = ["1", str(tmp_path)]
-            main()
-        mock_console_class.return_value.print.assert_called()
-
-    def test_calls_run_install_for_option_1(self, project: Path) -> None:
+    def test_quits_on_top_level_quit(self) -> None:
         with (
             patch("setup.Console"),
             patch("setup.Panel"),
-            patch("setup.Prompt") as mock_prompt,
+            patch("setup.questionary") as mock_q,
+            patch("setup.run_install") as mock_install,
+        ):
+            mock_q.select.return_value.ask.return_value = "quit"
+            main()
+        mock_install.assert_not_called()
+
+    def test_calls_run_install_for_junit5(self, project: Path) -> None:
+        with (
+            patch("setup.Console"),
+            patch("setup.Panel"),
+            patch("setup.questionary") as mock_q,
             patch("setup.run_install") as mock_install,
             patch("setup.is_junit5_configured", return_value=False),
         ):
-            mock_prompt.ask.side_effect = ["1", str(project), "1"]
+            mock_q.select.return_value.ask.side_effect = [
+                "junit5",
+                "install",
+                "back",
+                "quit",
+            ]
+            mock_q.text.return_value.ask.return_value = str(project)
             main()
         mock_install.assert_called_once_with(project)
 
-    def test_calls_run_uninstall_for_option_2(self, project: Path) -> None:
+    def test_calls_run_uninstall_for_junit5(self, project: Path) -> None:
         with (
             patch("setup.Console"),
             patch("setup.Panel"),
-            patch("setup.Prompt") as mock_prompt,
+            patch("setup.questionary") as mock_q,
             patch("setup.run_uninstall") as mock_uninstall,
             patch("setup.is_junit5_configured", return_value=True),
         ):
-            mock_prompt.ask.side_effect = ["1", str(project), "2"]
+            mock_q.select.return_value.ask.side_effect = [
+                "junit5",
+                "uninstall",
+                "back",
+                "quit",
+            ]
+            mock_q.text.return_value.ask.return_value = str(project)
             main()
         mock_uninstall.assert_called_once_with(project)
 
-    def test_quits_without_install_on_q(self, project: Path) -> None:
+    def test_calls_run_install_mysql(self, mysql_project: Path) -> None:
         with (
             patch("setup.Console"),
             patch("setup.Panel"),
-            patch("setup.Prompt") as mock_prompt,
-            patch("setup.run_install") as mock_install,
-            patch("setup.is_junit5_configured", return_value=False),
+            patch("setup.questionary") as mock_q,
+            patch("setup.run_install_mysql") as mock_install,
+            patch("setup.is_mysql_configured", return_value=False),
         ):
-            mock_prompt.ask.side_effect = ["1", str(project), "q"]
+            mock_q.select.return_value.ask.side_effect = [
+                "database",
+                "install",
+                "back",
+                "quit",
+            ]
+            mock_q.text.return_value.ask.return_value = str(mysql_project)
             main()
-        mock_install.assert_not_called()
+        mock_install.assert_called_once_with(mysql_project)
 
-    def test_quits_without_uninstall_on_q(self, project: Path) -> None:
+    def test_calls_run_uninstall_mysql(self, mysql_project: Path) -> None:
         with (
             patch("setup.Console"),
             patch("setup.Panel"),
-            patch("setup.Prompt") as mock_prompt,
-            patch("setup.run_uninstall") as mock_uninstall,
-            patch("setup.is_junit5_configured", return_value=True),
+            patch("setup.questionary") as mock_q,
+            patch("setup.run_uninstall_mysql") as mock_uninstall,
+            patch("setup.is_mysql_configured", return_value=True),
         ):
-            mock_prompt.ask.side_effect = ["1", str(project), "q"]
+            mock_q.select.return_value.ask.side_effect = [
+                "database",
+                "uninstall",
+                "back",
+                "quit",
+            ]
+            mock_q.text.return_value.ask.return_value = str(mysql_project)
             main()
-        mock_uninstall.assert_not_called()
+        mock_uninstall.assert_called_once_with(mysql_project)
+
+    def test_calls_download_template_zip(self, tmp_path: Path) -> None:
+        with (
+            patch("setup.Console"),
+            patch("setup.Panel"),
+            patch("setup.questionary") as mock_q,
+            patch("setup.download_template_zip", return_value=tmp_path / "Template.zip") as mock_dl,
+        ):
+            mock_q.select.return_value.ask.side_effect = ["templates", "back", "quit"]
+            mock_q.text.return_value.ask.return_value = str(tmp_path)
+            main()
+        mock_dl.assert_called_once_with(tmp_path)
+
+    def test_handles_invalid_project_gracefully(self, tmp_path: Path) -> None:
+        with (
+            patch("setup.Console"),
+            patch("setup.Panel"),
+            patch("setup.questionary") as mock_q,
+        ):
+            mock_q.select.return_value.ask.side_effect = ["junit5", "back", "quit"]
+            mock_q.text.return_value.ask.return_value = str(tmp_path)
+            main()
 
     def test_handles_permission_error_gracefully(self, project: Path) -> None:
         with (
-            patch("setup.Console") as mock_console_class,
+            patch("setup.Console"),
             patch("setup.Panel"),
-            patch("setup.Prompt") as mock_prompt,
-            patch("setup.run_uninstall", side_effect=PermissionError("file in use")),
-            patch("setup.is_junit5_configured", return_value=True),
+            patch("setup.questionary") as mock_q,
+            patch("setup.run_install", side_effect=PermissionError("file in use")),
+            patch("setup.is_junit5_configured", return_value=False),
         ):
-            mock_prompt.ask.side_effect = ["1", str(project), "2"]
+            mock_q.select.return_value.ask.side_effect = ["junit5", "install"]
+            mock_q.text.return_value.ask.return_value = str(project)
             main()
-        mock_console_class.return_value.print.assert_called()
 
-    def test_quits_on_top_level_q(self) -> None:
+    def test_back_returns_to_main_menu(self, project: Path) -> None:
         with (
             patch("setup.Console"),
             patch("setup.Panel"),
-            patch("setup.Prompt") as mock_prompt,
+            patch("setup.questionary") as mock_q,
             patch("setup.run_install") as mock_install,
+            patch("setup.is_junit5_configured", return_value=False),
         ):
-            mock_prompt.ask.side_effect = ["q"]
+            mock_q.select.return_value.ask.side_effect = ["junit5", "back", "quit"]
+            mock_q.text.return_value.ask.return_value = str(project)
             main()
         mock_install.assert_not_called()
 
-    def test_calls_run_install_templates_on_option_2_then_3(self, tmp_path: Path) -> None:
+    def test_quits_after_nav_quit(self, project: Path) -> None:
         with (
             patch("setup.Console"),
             patch("setup.Panel"),
-            patch("setup.Prompt") as mock_prompt,
-            patch("setup.find_netbeans_user_dir", return_value=tmp_path),
-            patch("setup.are_templates_installed", return_value=False),
-            patch("setup.run_install_templates") as mock_run,
+            patch("setup.questionary") as mock_q,
+            patch("setup.run_install") as mock_install,
+            patch("setup.is_junit5_configured", return_value=False),
         ):
-            mock_prompt.ask.side_effect = ["2", "3"]
+            mock_q.select.return_value.ask.side_effect = ["junit5", "install", "quit"]
+            mock_q.text.return_value.ask.return_value = str(project)
             main()
-        mock_run.assert_called_once_with(tmp_path)
-
-    def test_shows_already_installed_when_no_backup(self, tmp_path: Path) -> None:
-        with (
-            patch("setup.Console") as mock_console_class,
-            patch("setup.Panel"),
-            patch("setup.Prompt") as mock_prompt,
-            patch("setup.find_netbeans_user_dir", return_value=tmp_path),
-            patch("setup.are_templates_installed", return_value=True),
-            patch("setup.is_setup_backup_present", return_value=False),
-        ):
-            mock_prompt.ask.side_effect = ["2"]
-            main()
-        mock_console_class.return_value.print.assert_called()
-
-    def test_calls_rollback_setup_when_backup_present(self, tmp_path: Path) -> None:
-        with (
-            patch("setup.Console"),
-            patch("setup.Panel"),
-            patch("setup.Prompt") as mock_prompt,
-            patch("setup.find_netbeans_user_dir", return_value=tmp_path),
-            patch("setup.are_templates_installed", return_value=True),
-            patch("setup.is_setup_backup_present", return_value=True),
-            patch("setup.rollback_setup") as mock_rollback,
-        ):
-            mock_prompt.ask.side_effect = ["2", "3"]
-            main()
-        mock_rollback.assert_called_once_with(tmp_path)
-
-    def test_handles_netbeans_dir_not_found(self) -> None:
-        with (
-            patch("setup.Console") as mock_console_class,
-            patch("setup.Panel"),
-            patch("setup.Prompt") as mock_prompt,
-            patch("setup.find_netbeans_user_dir", return_value=None),
-        ):
-            mock_prompt.ask.side_effect = ["2"]
-            main()
-        mock_console_class.return_value.print.assert_called()
-
-    def test_quits_templates_on_q(self, tmp_path: Path) -> None:
-        with (
-            patch("setup.Console"),
-            patch("setup.Panel"),
-            patch("setup.Prompt") as mock_prompt,
-            patch("setup.find_netbeans_user_dir", return_value=tmp_path),
-            patch("setup.are_templates_installed", return_value=False),
-            patch("setup.run_install_templates") as mock_run,
-        ):
-            mock_prompt.ask.side_effect = ["2", "q"]
-            main()
-        mock_run.assert_not_called()
+        mock_install.assert_called_once_with(project)
 
 
 class TestCleanPath:
@@ -666,16 +817,16 @@ class TestRunUninstall:
         assert not (project / "lib" / "junit5").exists()
 
     def test_removes_file_references(self, project: Path) -> None:
-        props = project / "nbproject" / "project.properties"
-        add_file_references(props, JAR_NAMES)
+        properties = project / "nbproject" / "project.properties"
+        add_file_references(properties, JAR_NAMES)
         run_uninstall(project)
-        assert "file.reference.junit-jupiter-api-5.10.3.jar" not in props.read_text()
+        assert "file.reference.junit-jupiter-api-5.10.3.jar" not in properties.read_text()
 
     def test_reverts_classpath(self, project: Path) -> None:
-        props = project / "nbproject" / "project.properties"
-        modify_classpath(props, JAR_NAMES)
+        properties = project / "nbproject" / "project.properties"
+        modify_classpath(properties, JAR_NAMES)
         run_uninstall(project)
-        assert "${file.reference.junit-jupiter-api-5.10.3.jar}" not in props.read_text()
+        assert "${file.reference.junit-jupiter-api-5.10.3.jar}" not in properties.read_text()
 
     def test_removes_build_xml_markers(self, project: Path) -> None:
         inject_build_xml(project / "build.xml", OVERRIDE_CONTENT)
@@ -689,6 +840,6 @@ class TestRunUninstall:
         ):
             run_install(project)
         run_uninstall(project)
-        props = (project / "nbproject" / "project.properties").read_text()
-        assert "file.reference.junit-jupiter-api-5.10.3.jar" not in props
+        properties = (project / "nbproject" / "project.properties").read_text()
+        assert "file.reference.junit-jupiter-api-5.10.3.jar" not in properties
         assert MARKER_BEGIN not in (project / "build.xml").read_text()
