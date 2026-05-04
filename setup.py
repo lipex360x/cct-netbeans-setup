@@ -440,8 +440,8 @@ def _nav_choice() -> str:
     return result or "quit"
 
 
-def _database_flow(console: Console, description: str = "") -> str:
-    _print_section(console, "MySQL Database", description)
+def _database_flow(console: Console, title: str = "", description: str = "") -> str:
+    _print_section(console, title, description)
     project = _ask_project_path()
     if project is None:
         return "quit"
@@ -488,8 +488,8 @@ def _database_flow(console: Console, description: str = "") -> str:
     return _nav_choice()
 
 
-def _junit5_flow(console: Console, description: str = "") -> str:
-    _print_section(console, "JUnit 5", description)
+def _junit5_flow(console: Console, title: str = "", description: str = "") -> str:
+    _print_section(console, title, description)
     project = _ask_project_path()
     if project is None:
         return "quit"
@@ -536,8 +536,8 @@ def _junit5_flow(console: Console, description: str = "") -> str:
     return _nav_choice()
 
 
-def _gitignore_flow(console: Console, description: str = "") -> str:
-    _print_section(console, ".gitignore", description)
+def _gitignore_flow(console: Console, title: str = "", description: str = "") -> str:
+    _print_section(console, title, description)
     project = _ask_project_path()
     if project is None:
         return "quit"
@@ -577,8 +577,8 @@ def _gitignore_flow(console: Console, description: str = "") -> str:
     return _nav_choice()
 
 
-def _docker_compose_flow(console: Console, description: str = "") -> str:
-    _print_section(console, "Docker Compose", description)
+def _docker_compose_flow(console: Console, title: str = "", description: str = "") -> str:
+    _print_section(console, title, description)
     if not is_docker_running():
         console.print("\n  [red]✗[/red]  Docker is not running. Start Docker and try again.\n")
         return _nav_choice()
@@ -622,8 +622,8 @@ def _docker_compose_flow(console: Console, description: str = "") -> str:
     return _nav_choice()
 
 
-def _templates_flow(console: Console, description: str = "") -> str:
-    _print_section(console, "NetBeans Templates", description)
+def _templates_flow(console: Console, title: str = "", description: str = "") -> str:
+    _print_section(console, title, description)
     cwd = Path.cwd()
     raw = questionary.text(f"Save Template.zip to (. = {cwd}):", default=".", style=_STYLE).ask()
     if raw is None:
@@ -648,16 +648,18 @@ def _templates_flow(console: Console, description: str = "") -> str:
 
 
 def _run_flow(console: Console, choice: str, descriptions: dict[str, dict[str, str]]) -> str:
-    description = descriptions.get(choice, {}).get("description", "")
+    entry = descriptions.get(choice, {})
+    title = entry.get("title", "")
+    description = entry.get("description", "")
     if choice == "database":
-        return _database_flow(console, description)
+        return _database_flow(console, title, description)
     if choice == "junit5":
-        return _junit5_flow(console, description)
+        return _junit5_flow(console, title, description)
     if choice == "docker":
-        return _docker_compose_flow(console, description)
+        return _docker_compose_flow(console, title, description)
     if choice == "gitignore":
-        return _gitignore_flow(console, description)
-    return _templates_flow(console, description)
+        return _gitignore_flow(console, title, description)
+    return _templates_flow(console, title, description)
 
 
 def main() -> None:
