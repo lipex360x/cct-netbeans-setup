@@ -12,6 +12,7 @@
 - [Per-project setup](#per-project-setup)
 - [Global setup](#global-setup)
 - [JUnit 5 — Common Assertions](#junit-5--common-assertions)
+- [MySQL — Database Connection](#mysql--database-connection)
 - [Repository structure](#repository-structure)
 - [Included JARs](#included-jars)
 
@@ -138,6 +139,42 @@ class ExampleTest {
 
 > [!IMPORTANT]
 > In `assertThrows`, the lambda must call the method that throws — never wrap the assertion itself inside the lambda.
+
+<div align="right"><a href="#netbeans--cct-setup">↑ Back to top</a></div>
+
+---
+
+## MySQL — Database Connection
+
+```java
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+
+public class DatabaseConnection {
+
+    public static void main(String[] args) {
+        String url = "jdbc:mysql://localhost:3306/database";
+        String user = "username";
+        String password = "password";
+
+        try {
+            Class.forName("com.mysql.cj.jdbc.Driver");
+
+            try (Connection conn = DriverManager.getConnection(url, user, password)) {
+                System.out.println("Connected to Database...");
+            }
+        } catch (ClassNotFoundException error) {
+            System.out.println("Driver not found: " + error.getMessage());
+        } catch (SQLException error) {
+            System.out.println("SQL Exception: " + error.getMessage());
+        }
+    }
+}
+```
+
+> [!TIP]
+> The `mysql-connector-j.jar` is installed automatically by the setup script (option **[1] JUnit 5 + MySQL**). Make sure it is listed in your project's **Libraries** before compiling.
 
 <div align="right"><a href="#netbeans--cct-setup">↑ Back to top</a></div>
 
