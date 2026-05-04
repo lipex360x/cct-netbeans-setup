@@ -66,7 +66,7 @@ Open each template in **Tools → Templates** and paste the content of the corre
 import static org.junit.jupiter.api.Assertions.*;
 
 @Test
-void exemploAssertions() {
+void assertionExamples() {
 
     // assertTrue / assertFalse
     assertTrue(2 + 2 == 4);
@@ -85,9 +85,15 @@ void exemploAssertions() {
     assertNotNull("hello");
 
     // assertThrows — verifies that a method throws an exception
-    assertThrows(IllegalArgumentException.class, () -> {
-        throw new IllegalArgumentException("invalid input");
-    });
+    assertThrows(IllegalArgumentException.class, () -> setAge(-1));
+}
+
+// example method that triggers the exception
+void setAge(int age) {
+    if (age < 0) {
+        throw new IllegalArgumentException("Age cannot be negative");
+    }
+    // ...
 }
 ```
 
