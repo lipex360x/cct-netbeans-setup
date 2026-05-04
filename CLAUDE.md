@@ -1,9 +1,5 @@
 # CLAUDE.md
 
-## Required reading before any task
-
-Read `.docs/project.yaml` before starting any work. It contains the project purpose, architecture, design decisions, and planned features — it is the source of truth for context.
-
 ## Overview
 
 Zero-clone CLI to configure NetBeans Ant projects (JUnit 5, classpath, build overrides).
