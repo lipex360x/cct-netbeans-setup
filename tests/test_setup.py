@@ -1074,19 +1074,11 @@ class TestMainDockerCompose:
 
 
 class TestMenuIndicators:
-    def test_dot_returns_list_of_tuples(self) -> None:
-        assert isinstance(_dot(True), list)
-        assert all(isinstance(item, tuple) and len(item) == 2 for item in _dot(True))
-
     def test_dot_filled_when_configured(self) -> None:
-        assert any("●" in text for _, text in _dot(True))
+        assert _dot(True) == "●"
 
     def test_dot_empty_when_not_configured(self) -> None:
-        assert any("○" in text for _, text in _dot(False))
-
-    def test_dot_includes_cyan_color(self) -> None:
-        assert any("#00d7ff" in style for style, _ in _dot(True))
-        assert any("#00d7ff" in style for style, _ in _dot(False))
+        assert _dot(False) == "○"
 
     def test_feature_dots_empty_for_invalid_project(self, tmp_path: Path) -> None:
         assert _feature_dots(tmp_path) == {}
@@ -1098,32 +1090,18 @@ class TestMenuIndicators:
     def test_feature_dots_filled_when_configured(self, project: Path) -> None:
         with patch("setup.is_junit5_configured", return_value=True):
             result = _feature_dots(project)
-        assert any("●" in text for _, text in result["junit5"])
+        assert result["junit5"] == "●"
 
     def test_feature_dots_empty_when_not_configured(self, project: Path) -> None:
         with patch("setup.is_junit5_configured", return_value=False):
             result = _feature_dots(project)
-        assert any("○" in text for _, text in result["junit5"])
+        assert result["junit5"] == "○"
 
     def test_menu_label_plain_without_indicators(self) -> None:
         assert _menu_label({}, "junit5", "[2] JUnit 5") == "[2] JUnit 5"
 
-    def test_menu_label_returns_list_when_indicators_present(self) -> None:
-        dot: list[tuple[str, str]] = [("fg:#00d7ff bold", "●")]
-        result = _menu_label({"junit5": dot}, "junit5", "[2] JUnit 5")
-        assert isinstance(result, list)
-
-    def test_menu_label_includes_dot_and_label(self) -> None:
-        dot: list[tuple[str, str]] = [("fg:#00d7ff bold", "●")]
-        result = _menu_label({"junit5": dot}, "junit5", "[2] JUnit 5")
-        assert isinstance(result, list)
-        combined = "".join(text for _, text in result)
-        assert "●" in combined
-        assert "[2] JUnit 5" in combined
+    def test_menu_label_prefixes_dot_when_present(self) -> None:
+        assert _menu_label({"junit5": "●"}, "junit5", "[2] JUnit 5") == "● [2] JUnit 5"
 
     def test_menu_label_space_placeholder_for_missing_key(self) -> None:
-        dot: list[tuple[str, str]] = [("fg:#00d7ff bold", "●")]
-        result = _menu_label({"junit5": dot}, "templates", "[5] NetBeans Templates")
-        assert isinstance(result, list)
-        combined = "".join(text for _, text in result)
-        assert "[5] NetBeans Templates" in combined
+        assert _menu_label({"junit5": "●"}, "templates", "[5] NetBeans Templates") == "  [5] NetBeans Templates"
