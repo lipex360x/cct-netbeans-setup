@@ -11,10 +11,10 @@
 - [Prerequisites](#prerequisites)
 - [Per-project setup](#per-project-setup)
 - [Global setup](#global-setup)
-- [JUnit 5 — Common Assertions](#junit-5--common-assertions)
-- [MySQL — Database Connection](#mysql--database-connection)
 - [Repository structure](#repository-structure)
 - [Included JARs](#included-jars)
+- [JUnit 5 — Common Assertions](#junit-5--common-assertions)
+- [MySQL — Database Connection](#mysql--database-connection)
 
 ---
 
@@ -80,6 +80,63 @@ Open each template in **Tools → Templates** and paste the content of the corre
 | `ClassTemplate.java` | Java → Java Class |
 | `MainClassTemplate.java` | Java → Java Main Class |
 | `JUnitTemplate.java` | Test Class → JUnit 5.x → Open in Editor |
+
+<div align="right"><a href="#netbeans--cct-setup">↑ Back to top</a></div>
+
+---
+
+## Repository structure
+
+```
+cct-netbeans-setup/
+├── .docs/
+│   └── project.yaml              ← project brief and design decisions
+├── libs/
+│   ├── database/
+│   │   └── mysql/
+│   │       └── mysql-connector-j.jar
+│   └── tests/
+│       └── junit5/
+│           ├── jar/              ← 9 JUnit 5 JARs (downloaded by setup.py)
+│           ├── junit5-build-override.xml
+│           └── junit5-setup.md  ← manual setup guide (fallback)
+├── templates/
+│   ├── Template.zip
+│   ├── ClassTemplate.java
+│   ├── MainClassTemplate.java
+│   ├── JUnitTemplate.java
+│   └── templates.md
+├── tests/
+│   ├── test_setup.py
+│   └── test_templates.py
+└── setup.py                      ← CLI entry point (uv PEP 723 script)
+```
+
+<div align="right"><a href="#netbeans--cct-setup">↑ Back to top</a></div>
+
+---
+
+## Included JARs
+
+### JUnit 5 (`libs/tests/junit5/jar/`)
+
+| JAR | Version |
+|---|---|
+| `junit-jupiter-api` | 5.10.3 |
+| `junit-jupiter-engine` | 5.10.3 |
+| `junit-platform-commons` | 1.10.3 |
+| `junit-platform-engine` | 1.10.3 |
+| `junit-platform-launcher` | 1.10.3 |
+| `apiguardian-api` | 1.1.2 |
+| `opentest4j` | 1.3.0 |
+| `junit` (JUnit 4 compat) | 4.13.2 |
+| `hamcrest-core` | 1.3 |
+
+### MySQL (`libs/database/mysql/`)
+
+| JAR | Notes |
+|---|---|
+| `mysql-connector-j.jar` | Current version in the repository |
 
 <div align="right"><a href="#netbeans--cct-setup">↑ Back to top</a></div>
 
@@ -175,62 +232,5 @@ public class DatabaseConnection {
 
 > [!TIP]
 > The `mysql-connector-j.jar` is installed automatically by the setup script (option **[1] JUnit 5 + MySQL**). Make sure it is listed in your project's **Libraries** before compiling.
-
-<div align="right"><a href="#netbeans--cct-setup">↑ Back to top</a></div>
-
----
-
-## Repository structure
-
-```
-cct-netbeans-setup/
-├── .docs/
-│   └── project.yaml              ← project brief and design decisions
-├── libs/
-│   ├── database/
-│   │   └── mysql/
-│   │       └── mysql-connector-j.jar
-│   └── tests/
-│       └── junit5/
-│           ├── jar/              ← 9 JUnit 5 JARs (downloaded by setup.py)
-│           ├── junit5-build-override.xml
-│           └── junit5-setup.md  ← manual setup guide (fallback)
-├── templates/
-│   ├── Template.zip
-│   ├── ClassTemplate.java
-│   ├── MainClassTemplate.java
-│   ├── JUnitTemplate.java
-│   └── templates.md
-├── tests/
-│   ├── test_setup.py
-│   └── test_templates.py
-└── setup.py                      ← CLI entry point (uv PEP 723 script)
-```
-
-<div align="right"><a href="#netbeans--cct-setup">↑ Back to top</a></div>
-
----
-
-## Included JARs
-
-### JUnit 5 (`libs/tests/junit5/jar/`)
-
-| JAR | Version |
-|---|---|
-| `junit-jupiter-api` | 5.10.3 |
-| `junit-jupiter-engine` | 5.10.3 |
-| `junit-platform-commons` | 1.10.3 |
-| `junit-platform-engine` | 1.10.3 |
-| `junit-platform-launcher` | 1.10.3 |
-| `apiguardian-api` | 1.1.2 |
-| `opentest4j` | 1.3.0 |
-| `junit` (JUnit 4 compat) | 4.13.2 |
-| `hamcrest-core` | 1.3 |
-
-### MySQL (`libs/database/mysql/`)
-
-| JAR | Notes |
-|---|---|
-| `mysql-connector-j.jar` | Current version in the repository |
 
 <div align="right"><a href="#netbeans--cct-setup">↑ Back to top</a></div>
