@@ -15,6 +15,46 @@ from rich.panel import Panel
 
 MARKER_BEGIN = "<!-- cct-netbeans-setup:begin -->"
 MARKER_END = "<!-- cct-netbeans-setup:end -->"
+GITIGNORE_MARKER = "# cct-netbeans-setup"
+
+_GITIGNORE_CONTENT = """\
+# cct-netbeans-setup
+
+# Compiled class files
+*.class
+
+# Build output
+/build/
+/dist/
+/out/
+
+# NetBeans
+nbproject/private/
+nbproject/Makefile-*.mk
+nbproject/Package-*.bash
+nbbuild/
+nbdist/
+
+# Package files
+*.jar
+*.war
+*.ear
+*.nar
+*.zip
+*.tar.gz
+*.rar
+
+# Log files
+*.log
+
+# JVM crash logs
+hs_err_pid*
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+"""
 
 GITHUB_REPO = "lipex360x/cct-netbeans-setup"
 GITHUB_BRANCH = "main"
@@ -79,9 +119,7 @@ def set_compile_on_save_false(properties: Path) -> None:
             target.write_text(content.rstrip("\n") + "\ncompile.on.save=false\n")
 
 
-def add_file_references(
-    properties: Path, jar_names: list[str], lib_dir: str = "lib/junit5"
-) -> None:
+def add_file_references(properties: Path, jar_names: list[str], lib_dir: str = "lib/junit5") -> None:
     content = properties.read_text()
     additions = []
     for name in jar_names:
@@ -141,9 +179,7 @@ def inject_build_xml(build_xml: Path, override_content: str) -> None:
 
 def remove_file_references(properties: Path, lib_dir: str = "lib/junit5") -> None:
     lines = properties.read_text().splitlines(keepends=True)
-    filtered = [
-        line for line in lines if not (line.startswith("file.reference.") and f"{lib_dir}/" in line)
-    ]
+    filtered = [line for line in lines if not (line.startswith("file.reference.") and f"{lib_dir}/" in line)]
     properties.write_text("".join(filtered))
 
 
@@ -202,11 +238,7 @@ def fetch_jar_names() -> list[str]:
     response = requests.get(api_url, timeout=10)
     response.raise_for_status()
     entries = response.json()
-    return [
-        entry["name"]
-        for entry in entries
-        if entry["type"] == "file" and entry["name"].endswith(".jar")
-    ]
+    return [entry["name"] for entry in entries if entry["type"] == "file" and entry["name"].endswith(".jar")]
 
 
 def download_jars(destination: Path, jar_names: list[str]) -> None:
@@ -244,9 +276,7 @@ def download_template_zip(destination: Path) -> Path:
 
 _DEPENDS_SINGLE = "init,compile-test-single,-pre-test-run-single"
 
-_JUNITLAUNCHER_CLASS = (
-    "org.apache.tools.ant.taskdefs.optional.junitlauncher.confined.JUnitLauncherTask"
-)
+_JUNITLAUNCHER_CLASS = "org.apache.tools.ant.taskdefs.optional.junitlauncher.confined.JUnitLauncherTask"
 
 _TASKDEF_BLOCK = (
     '<taskdef name="junitlauncher"\n'
@@ -305,6 +335,24 @@ _BUILD_OVERRIDE = (
     </junitlauncher>
 </target>"""
 )
+
+
+def is_gitignore_configured(project: Path) -> bool:
+    gitignore = project / ".gitignore"
+    return gitignore.is_file() and GITIGNORE_MARKER in gitignore.read_text()
+
+
+def generate_gitignore(project: Path) -> None:
+    gitignore = project / ".gitignore"
+    if gitignore.is_file() and GITIGNORE_MARKER in gitignore.read_text():
+        return
+    gitignore.write_text(_GITIGNORE_CONTENT)
+
+
+def remove_gitignore(project: Path) -> None:
+    gitignore = project / ".gitignore"
+    if gitignore.is_file() and GITIGNORE_MARKER in gitignore.read_text():
+        gitignore.unlink()
 
 
 def clean_path(raw: str) -> Path:
@@ -461,6 +509,46 @@ def _junit5_flow(console: Console) -> str:
     return _nav_choice()
 
 
+def _gitignore_flow(console: Console) -> str:
+    project = _ask_project_path()
+    if project is None:
+        return "quit"
+    configured = is_gitignore_configured(project)
+    status_text = "[green]● generated[/green]" if configured else "[yellow]○ not generated[/yellow]"
+    console.print(
+        Panel(
+            f"\n  [bold].gitignore[/bold]   {status_text}\n",
+            title=f"[bold cyan]{project.name}[/bold cyan]",
+            border_style="cyan",
+            title_align="left",
+        )
+    )
+    if configured:
+        choices = [
+            questionary.Choice("Remove .gitignore", value="remove"),
+            questionary.Choice("Back to menu", value="back"),
+            questionary.Choice("Quit", value="quit"),
+        ]
+    else:
+        choices = [
+            questionary.Choice("Generate .gitignore", value="generate"),
+            questionary.Choice("Back to menu", value="back"),
+            questionary.Choice("Quit", value="quit"),
+        ]
+    action = questionary.select("", choices=choices, style=_STYLE).ask()
+    if action in (None, "back"):
+        return "back"
+    if action == "quit":
+        return "quit"
+    if action == "generate":
+        generate_gitignore(project)
+        console.print("\n  [green]✓[/green]  .gitignore generated.\n")
+    else:
+        remove_gitignore(project)
+        console.print("\n  [green]✓[/green]  .gitignore removed.\n")
+    return _nav_choice()
+
+
 def _templates_flow(console: Console) -> str:
     cwd = Path.cwd()
     raw = questionary.text(f"Save Template.zip to (. = {cwd}):", default=".", style=_STYLE).ask()
@@ -501,7 +589,8 @@ def main() -> None:
                 choices=[
                     questionary.Choice("[1] Database", value="database"),
                     questionary.Choice("[2] JUnit 5", value="junit5"),
-                    questionary.Choice("[3] Templates", value="templates"),
+                    questionary.Choice("[3] .gitignore", value="gitignore"),
+                    questionary.Choice("[4] Templates", value="templates"),
                     questionary.Choice("Quit", value="quit"),
                 ],
                 style=_STYLE,
@@ -512,6 +601,8 @@ def main() -> None:
                 result = _database_flow(console)
             elif choice == "junit5":
                 result = _junit5_flow(console)
+            elif choice == "gitignore":
+                result = _gitignore_flow(console)
             else:
                 result = _templates_flow(console)
             if result == "quit":

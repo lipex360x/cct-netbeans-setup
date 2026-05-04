@@ -8,6 +8,7 @@ import pytest
 from setup import (
     _BUILD_OVERRIDE,
     _MYSQL_CLASSPATH_KEYS,
+    GITIGNORE_MARKER,
     MARKER_BEGIN,
     MARKER_END,
     MYSQL_JAR_NAME,
@@ -16,13 +17,16 @@ from setup import (
     download_jars,
     download_mysql_jar,
     fetch_jar_names,
+    generate_gitignore,
     inject_build_xml,
+    is_gitignore_configured,
     is_junit5_configured,
     is_mysql_configured,
     main,
     modify_classpath,
     remove_build_xml_override,
     remove_file_references,
+    remove_gitignore,
     remove_jar_directory,
     revert_classpath,
     run_install,
@@ -131,9 +135,7 @@ class TestIsJunit5Configured:
         build_xml.write_text(
             BUILD_XML_ORIGINAL.replace(
                 '    <import file="nbproject/build-impl.xml"/>',
-                '    <import file="nbproject/build-impl.xml"/>\n'
-                f"    {MARKER_BEGIN}\n"
-                f"    {MARKER_END}",
+                f'    <import file="nbproject/build-impl.xml"/>\n    {MARKER_BEGIN}\n    {MARKER_END}',
             )
         )
         assert is_junit5_configured(project) is True
@@ -154,9 +156,7 @@ class TestIsMysqlConfigured:
         jar_dir.mkdir(parents=True)
         (jar_dir / MYSQL_JAR_NAME).write_bytes(b"fake")
         properties = mysql_project / "nbproject" / "project.properties"
-        properties.write_text(
-            properties.read_text() + f"file.reference.{MYSQL_JAR_NAME}=lib/mysql/{MYSQL_JAR_NAME}\n"
-        )
+        properties.write_text(properties.read_text() + f"file.reference.{MYSQL_JAR_NAME}=lib/mysql/{MYSQL_JAR_NAME}\n")
         assert is_mysql_configured(mysql_project) is True
 
 
@@ -204,10 +204,7 @@ class TestAddFileReferences:
     def test_adds_reference_for_each_jar(self, properties: Path) -> None:
         add_file_references(properties, JAR_NAMES)
         content = properties.read_text()
-        assert (
-            "file.reference.junit-jupiter-api-5.10.3.jar=lib/junit5/junit-jupiter-api-5.10.3.jar"
-            in content
-        )
+        assert "file.reference.junit-jupiter-api-5.10.3.jar=lib/junit5/junit-jupiter-api-5.10.3.jar" in content
         assert "file.reference.opentest4j-1.3.0.jar=lib/junit5/opentest4j-1.3.0.jar" in content
 
     def test_idempotent(self, properties: Path) -> None:
@@ -224,9 +221,7 @@ class TestAddFileReferences:
 
     def test_uses_custom_lib_dir(self, properties: Path) -> None:
         add_file_references(properties, [MYSQL_JAR_NAME], lib_dir="lib/mysql")
-        assert (
-            f"file.reference.{MYSQL_JAR_NAME}=lib/mysql/{MYSQL_JAR_NAME}" in properties.read_text()
-        )
+        assert f"file.reference.{MYSQL_JAR_NAME}=lib/mysql/{MYSQL_JAR_NAME}" in properties.read_text()
 
 
 class TestModifyClasspath:
@@ -247,20 +242,14 @@ class TestModifyClasspath:
             if in_run_block and "file.reference.junit-jupiter-api-5.10.3.jar" in line:
                 found = True
                 break
-            if (
-                in_run_block
-                and not line.endswith("\\")
-                and not line.startswith("run.test.classpath")
-            ):
+            if in_run_block and not line.endswith("\\") and not line.startswith("run.test.classpath"):
                 in_run_block = False
         assert found
 
     def test_last_jar_has_no_continuation(self, properties: Path) -> None:
         modify_classpath(properties, JAR_NAMES)
         lines = properties.read_text().splitlines()
-        last_jar_line = next(
-            line for line in reversed(lines) if "file.reference.opentest4j" in line
-        )
+        last_jar_line = next(line for line in reversed(lines) if "file.reference.opentest4j" in line)
         assert not last_jar_line.rstrip().endswith("\\")
 
     def test_idempotent(self, properties: Path) -> None:
@@ -843,3 +832,96 @@ class TestRunUninstall:
         properties = (project / "nbproject" / "project.properties").read_text()
         assert "file.reference.junit-jupiter-api-5.10.3.jar" not in properties
         assert MARKER_BEGIN not in (project / "build.xml").read_text()
+
+
+class TestIsGitignoreConfigured:
+    def test_returns_false_when_no_gitignore(self, project: Path) -> None:
+        assert not is_gitignore_configured(project)
+
+    def test_returns_false_when_gitignore_has_no_marker(self, project: Path) -> None:
+        (project / ".gitignore").write_text("*.class\n")
+        assert not is_gitignore_configured(project)
+
+    def test_returns_true_when_marker_present(self, project: Path) -> None:
+        (project / ".gitignore").write_text(f"{GITIGNORE_MARKER}\n*.class\n")
+        assert is_gitignore_configured(project)
+
+
+class TestGenerateGitignore:
+    def test_creates_gitignore_file(self, project: Path) -> None:
+        generate_gitignore(project)
+        assert (project / ".gitignore").is_file()
+
+    def test_file_contains_marker(self, project: Path) -> None:
+        generate_gitignore(project)
+        assert GITIGNORE_MARKER in (project / ".gitignore").read_text()
+
+    def test_file_contains_java_patterns(self, project: Path) -> None:
+        generate_gitignore(project)
+        content = (project / ".gitignore").read_text()
+        assert "*.class" in content
+        assert "/build/" in content
+
+    def test_file_contains_netbeans_patterns(self, project: Path) -> None:
+        generate_gitignore(project)
+        content = (project / ".gitignore").read_text()
+        assert "nbproject/private/" in content
+
+    def test_idempotent(self, project: Path) -> None:
+        generate_gitignore(project)
+        generate_gitignore(project)
+        content = (project / ".gitignore").read_text()
+        assert content.count(GITIGNORE_MARKER) == 1
+
+
+class TestRemoveGitignore:
+    def test_removes_gitignore_when_marker_present(self, project: Path) -> None:
+        generate_gitignore(project)
+        remove_gitignore(project)
+        assert not (project / ".gitignore").exists()
+
+    def test_noop_when_no_gitignore(self, project: Path) -> None:
+        remove_gitignore(project)
+
+    def test_does_not_remove_gitignore_without_marker(self, project: Path) -> None:
+        (project / ".gitignore").write_text("*.class\n")
+        remove_gitignore(project)
+        assert (project / ".gitignore").exists()
+
+
+class TestMainGitignore:
+    def test_calls_generate_gitignore(self, project: Path) -> None:
+        with (
+            patch("setup.Console"),
+            patch("setup.Panel"),
+            patch("setup.questionary") as mock_q,
+            patch("setup.generate_gitignore") as mock_gen,
+            patch("setup.is_gitignore_configured", return_value=False),
+        ):
+            mock_q.select.return_value.ask.side_effect = [
+                "gitignore",
+                "generate",
+                "back",
+                "quit",
+            ]
+            mock_q.text.return_value.ask.return_value = str(project)
+            main()
+        mock_gen.assert_called_once_with(project)
+
+    def test_calls_remove_gitignore(self, project: Path) -> None:
+        with (
+            patch("setup.Console"),
+            patch("setup.Panel"),
+            patch("setup.questionary") as mock_q,
+            patch("setup.remove_gitignore") as mock_remove,
+            patch("setup.is_gitignore_configured", return_value=True),
+        ):
+            mock_q.select.return_value.ask.side_effect = [
+                "gitignore",
+                "remove",
+                "back",
+                "quit",
+            ]
+            mock_q.text.return_value.ask.return_value = str(project)
+            main()
+        mock_remove.assert_called_once_with(project)
