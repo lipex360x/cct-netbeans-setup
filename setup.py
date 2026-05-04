@@ -679,10 +679,18 @@ def _run_flow(console: Console, choice: str, descriptions: dict[str, dict[str, s
 def main() -> None:
     console = Console()
     descriptions = fetch_descriptions()
+    project = Path.cwd()
     try:
+        try:
+            validate_netbeans_project(project)
+        except ValueError:
+            _print_section(console)
+            console.print("\n  [red]✗[/red]  Not a valid Java project directory.\n")
+            questionary.select("", choices=[questionary.Choice("Quit", value="quit")], style=_STYLE).ask()
+            return
         while True:
             _print_section(console)
-            indicators = _feature_dots(Path.cwd())
+            indicators = _feature_dots(project)
             choice = questionary.select(
                 "Select an option:",
                 choices=[

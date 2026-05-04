@@ -672,17 +672,17 @@ class TestMain:
             main()
         mock_uninstall.assert_called_once_with(mysql_project)
 
-    def test_calls_download_template_zip(self, tmp_path: Path) -> None:
+    def test_calls_download_template_zip(self, project: Path) -> None:
         with (
             patch("setup.Console"),
             patch("setup.Panel"),
             patch("setup.questionary") as mock_q,
-            patch("setup.download_template_zip", return_value=tmp_path / "Template.zip") as mock_dl,
-            patch("pathlib.Path.cwd", return_value=tmp_path),
+            patch("setup.download_template_zip", return_value=project / "Template.zip") as mock_dl,
+            patch("pathlib.Path.cwd", return_value=project),
         ):
             mock_q.select.return_value.ask.side_effect = ["templates", "back", "quit"]
             main()
-        mock_dl.assert_called_once_with(tmp_path)
+        mock_dl.assert_called_once_with(project)
 
     def test_handles_invalid_project_gracefully(self, tmp_path: Path) -> None:
         with (
@@ -691,8 +691,32 @@ class TestMain:
             patch("setup.questionary") as mock_q,
             patch("pathlib.Path.cwd", return_value=tmp_path),
         ):
-            mock_q.select.return_value.ask.side_effect = ["junit5", "back", "quit"]
+            mock_q.select.return_value.ask.return_value = "quit"
             main()
+
+    def test_shows_error_when_not_in_valid_project(self, tmp_path: Path) -> None:
+        with (
+            patch("setup.Console") as mock_console_class,
+            patch("setup.Panel"),
+            patch("setup.questionary") as mock_q,
+            patch("pathlib.Path.cwd", return_value=tmp_path),
+        ):
+            mock_q.select.return_value.ask.return_value = "quit"
+            main()
+        all_prints = str(mock_console_class.return_value.print.call_args_list)
+        assert "✗" in all_prints
+
+    def test_shows_only_quit_when_not_in_valid_project(self, tmp_path: Path) -> None:
+        with (
+            patch("setup.Console"),
+            patch("setup.Panel"),
+            patch("setup.questionary") as mock_q,
+            patch("setup.run_install") as mock_install,
+            patch("pathlib.Path.cwd", return_value=tmp_path),
+        ):
+            mock_q.select.return_value.ask.return_value = "quit"
+            main()
+        mock_install.assert_not_called()
 
     def test_handles_permission_error_gracefully(self, project: Path) -> None:
         with (
