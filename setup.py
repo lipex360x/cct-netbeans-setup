@@ -579,7 +579,14 @@ def _docker_compose_flow(console: Console, title: str = "", description: str = "
         f"  [bold]Docker daemon[/bold]      {daemon_text}\n"
         f"  [bold]Docker Compose[/bold]     {compose_text}"
     )
-    console.print(Panel(body, title=f"[bold cyan]{project.name}[/bold cyan]", border_style="cyan", title_align="left"))
+    console.print(
+        Panel(
+            body,
+            title=f"[bold cyan]{project.name}[/bold cyan]",
+            border_style="cyan",
+            title_align="left",
+        )
+    )
     if not docker_running:
         console.print("  [dim]Start Docker Desktop and try again.[/dim]\n")
         return _nav_choice()
@@ -631,6 +638,31 @@ def _templates_flow(console: Console, title: str = "", description: str = "") ->
     return _nav_choice()
 
 
+def _dot(configured: bool) -> str:
+    cyan = "\033[38;2;0;215;255m"
+    reset = "\033[0m"
+    return f"{cyan}●{reset}" if configured else f"{cyan}○{reset}"
+
+
+def _feature_dots(project: Path) -> dict[str, str]:
+    try:
+        validate_netbeans_project(project)
+    except ValueError:
+        return {}
+    return {
+        "database": _dot(is_mysql_configured(project)),
+        "junit5": _dot(is_junit5_configured(project)),
+        "docker": _dot(is_docker_compose_configured(project)),
+        "gitignore": _dot(is_gitignore_configured(project)),
+    }
+
+
+def _menu_label(indicators: dict[str, str], key: str, label: str) -> str:
+    if not indicators:
+        return label
+    return f"{indicators.get(key, ' ')} {label}"
+
+
 def _run_flow(console: Console, choice: str, descriptions: dict[str, dict[str, str]]) -> str:
     entry = descriptions.get(choice, {})
     title = entry.get("title", "")
@@ -652,14 +684,27 @@ def main() -> None:
     try:
         while True:
             _print_section(console)
+            indicators = _feature_dots(Path.cwd())
             choice = questionary.select(
                 "Select an option:",
                 choices=[
-                    questionary.Choice("[1] MySQL Database", value="database"),
-                    questionary.Choice("[2] JUnit 5", value="junit5"),
-                    questionary.Choice("[3] Docker Compose", value="docker"),
-                    questionary.Choice("[4] .gitignore", value="gitignore"),
-                    questionary.Choice("[5] NetBeans Templates", value="templates"),
+                    questionary.Choice(
+                        _menu_label(indicators, "database", "[1] MySQL Database"),
+                        value="database",
+                    ),
+                    questionary.Choice(_menu_label(indicators, "junit5", "[2] JUnit 5"), value="junit5"),
+                    questionary.Choice(
+                        _menu_label(indicators, "docker", "[3] Docker Compose"),
+                        value="docker",
+                    ),
+                    questionary.Choice(
+                        _menu_label(indicators, "gitignore", "[4] .gitignore"),
+                        value="gitignore",
+                    ),
+                    questionary.Choice(
+                        _menu_label(indicators, "templates", "[5] NetBeans Templates"),
+                        value="templates",
+                    ),
                     questionary.Choice("Quit", value="quit"),
                 ],
                 style=_STYLE,

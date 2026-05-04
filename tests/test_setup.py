@@ -13,6 +13,9 @@ from setup import (
     MARKER_BEGIN,
     MARKER_END,
     MYSQL_JAR_NAME,
+    _dot,
+    _feature_dots,
+    _menu_label,
     add_file_references,
     download_docker_compose,
     download_gitignore_template,
@@ -1026,7 +1029,12 @@ class TestMainDockerCompose:
             patch("setup.is_docker_compose_configured", return_value=False),
             patch("pathlib.Path.cwd", return_value=project),
         ):
-            mock_q.select.return_value.ask.side_effect = ["docker", "add", "back", "quit"]
+            mock_q.select.return_value.ask.side_effect = [
+                "docker",
+                "add",
+                "back",
+                "quit",
+            ]
             main()
         mock_dl.assert_called_once_with(project)
 
@@ -1041,7 +1049,12 @@ class TestMainDockerCompose:
             patch("setup.is_docker_compose_configured", return_value=True),
             patch("pathlib.Path.cwd", return_value=project),
         ):
-            mock_q.select.return_value.ask.side_effect = ["docker", "remove", "back", "quit"]
+            mock_q.select.return_value.ask.side_effect = [
+                "docker",
+                "remove",
+                "back",
+                "quit",
+            ]
             main()
         mock_rm.assert_called_once_with(project)
 
@@ -1058,3 +1071,43 @@ class TestMainDockerCompose:
             mock_q.select.return_value.ask.side_effect = ["docker", "back", "quit"]
             main()
         mock_dl.assert_not_called()
+
+
+class TestMenuIndicators:
+    def test_dot_filled_when_configured(self) -> None:
+        assert "●" in _dot(True)
+
+    def test_dot_empty_when_not_configured(self) -> None:
+        assert "○" in _dot(False)
+
+    def test_dot_includes_cyan_ansi_color(self) -> None:
+        assert "\033[38;2;0;215;255m" in _dot(True)
+        assert "\033[38;2;0;215;255m" in _dot(False)
+
+    def test_feature_dots_empty_for_invalid_project(self, tmp_path: Path) -> None:
+        assert _feature_dots(tmp_path) == {}
+
+    def test_feature_dots_has_all_keys_for_valid_project(self, project: Path) -> None:
+        result = _feature_dots(project)
+        assert set(result.keys()) == {"database", "junit5", "docker", "gitignore"}
+
+    def test_feature_dots_filled_when_configured(self, project: Path) -> None:
+        with patch("setup.is_junit5_configured", return_value=True):
+            result = _feature_dots(project)
+        assert "●" in result["junit5"]
+
+    def test_feature_dots_empty_when_not_configured(self, project: Path) -> None:
+        with patch("setup.is_junit5_configured", return_value=False):
+            result = _feature_dots(project)
+        assert "○" in result["junit5"]
+
+    def test_menu_label_plain_without_indicators(self) -> None:
+        assert _menu_label({}, "junit5", "[2] JUnit 5") == "[2] JUnit 5"
+
+    def test_menu_label_prefixes_dot_when_present(self) -> None:
+        result = _menu_label({"junit5": "●"}, "junit5", "[2] JUnit 5")
+        assert result == "● [2] JUnit 5"
+
+    def test_menu_label_space_placeholder_for_missing_key(self) -> None:
+        result = _menu_label({"junit5": "●"}, "templates", "[5] NetBeans Templates")
+        assert result == "  [5] NetBeans Templates"
