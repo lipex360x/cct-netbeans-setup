@@ -210,23 +210,19 @@ import java.sql.SQLException;
 
 public class DatabaseConnection {
 
-    public static void main(String[] args) {
-        String url = "jdbc:mysql://localhost:3306/database";
-        String user = "username";
-        String password = "password";
+  public static void main(String[] args) {
+    String url = "jdbc:mysql://localhost:3306/";
+    String database = "database";
+    String user = "username";
+    String password = "password";
 
-        try {
-            Class.forName("com.mysql.cj.jdbc.Driver");
-
-            try (Connection conn = DriverManager.getConnection(url, user, password)) {
-                System.out.println("Connected to Database...");
-            }
-        } catch (ClassNotFoundException error) {
-            System.out.println("Driver not found: " + error.getMessage());
-        } catch (SQLException error) {
-            System.out.println("SQL Exception: " + error.getMessage());
-        }
+    try {
+      Connection conn = DriverManager.getConnection((url + database), user, password);
+      System.out.println("Connected to Database " + database);
+    } catch (SQLException error) {
+      System.out.println("SQL Exception: " + error.getMessage());
     }
+  }
 }
 ```
 
