@@ -78,6 +78,16 @@ void exemploAssertions() {
 
     // with a failure message (shown when the assertion fails)
     assertEquals(4, 2 + 2, "2 + 2 should equal 4");
+
+    // assertNull / assertNotNull
+    String name = null;
+    assertNull(name);
+    assertNotNull("hello");
+
+    // assertThrows — verifies that a method throws an exception
+    assertThrows(IllegalArgumentException.class, () -> {
+        throw new IllegalArgumentException("invalid input");
+    });
 }
 ```
 
