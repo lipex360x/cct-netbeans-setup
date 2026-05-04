@@ -66,35 +66,47 @@ Open each template in **Tools → Templates** and paste the content of the corre
 import static org.junit.jupiter.api.Assertions.*;
 
 @Test
-void assertionExamples() {
-
-    // assertTrue / assertFalse
-    assertTrue(2 + 2 == 4);
-    assertFalse(2 + 2 == 5);
-
-    // assertEquals / assertNotEquals
-    assertEquals(4, 2 + 2);
-    assertNotEquals(5, 2 + 2);
-
-    // with a failure message (shown when the assertion fails)
+void sumReturnsCorrectResult() {
     assertEquals(4, 2 + 2, "2 + 2 should equal 4");
+}
 
-    // assertNull / assertNotNull
+@Test
+void sumDoesNotReturnWrongResult() {
+    assertNotEquals(5, 2 + 2);
+}
+
+@Test
+void conditionIsTrue() {
+    assertTrue(2 + 2 == 4);
+}
+
+@Test
+void conditionIsFalse() {
+    assertFalse(2 + 2 == 5);
+}
+
+@Test
+void uninitializedValueIsNull() {
     String name = null;
     assertNull(name);
-    assertNotNull("hello");
+}
 
-    // assertThrows — verifies that a method throws an exception and checks the message
+@Test
+void assignedValueIsNotNull() {
+    assertNotNull("hello");
+}
+
+@Test
+void setAgeThrowsForNegativeValue() {
     IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> setAge(-1));
     assertEquals("Age cannot be negative", ex.getMessage());
 }
 
-// example method that triggers the exception
+// example method used by setAgeThrowsForNegativeValue
 void setAge(int age) {
     if (age < 0) {
         throw new IllegalArgumentException("Age cannot be negative");
     }
-    // ...
 }
 ```
 
