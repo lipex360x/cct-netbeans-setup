@@ -1,15 +1,17 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["rich>=13", "requests>=2", "questionary>=2"]
+# dependencies = ["rich>=13", "requests>=2", "questionary>=2", "pyyaml>=6"]
 # ///
 
 from __future__ import annotations
 
 import shutil
+import subprocess
 from pathlib import Path
 
 import questionary
 import requests
+import yaml
 from rich.console import Console
 from rich.panel import Panel
 
@@ -17,50 +19,14 @@ MARKER_BEGIN = "<!-- cct-netbeans-setup:begin -->"
 MARKER_END = "<!-- cct-netbeans-setup:end -->"
 GITIGNORE_MARKER = "# cct-netbeans-setup"
 
-_GITIGNORE_CONTENT = """\
-# cct-netbeans-setup
-
-# Compiled class files
-*.class
-
-# Build output
-/build/
-/dist/
-/out/
-
-# NetBeans
-nbproject/private/
-nbproject/Makefile-*.mk
-nbproject/Package-*.bash
-nbbuild/
-nbdist/
-
-# Package files
-*.jar
-*.war
-*.ear
-*.nar
-*.zip
-*.tar.gz
-*.rar
-
-# Log files
-*.log
-
-# JVM crash logs
-hs_err_pid*
-
-# IDE files
-.idea/
-*.iml
-.vscode/
-"""
-
 GITHUB_REPO = "lipex360x/cct-netbeans-setup"
 GITHUB_BRANCH = "main"
 GITHUB_JARS_PATH = "libs/tests/junit5/jar"
 GITHUB_SETUP_ZIP_PATH = "templates/Template.zip"
 GITHUB_MYSQL_JAR_PATH = "libs/database/mysql/mysql-connector-j.jar"
+GITHUB_GITIGNORE_PATH = "templates/gitignore"
+GITHUB_DOCKER_COMPOSE_PATH = "libs/docker/docker-compose.yml"
+GITHUB_DESCRIPTIONS_PATH = "templates/descriptions.yaml"
 MYSQL_JAR_NAME = "mysql-connector-j.jar"
 
 _GITHUB_API = "https://api.github.com/repos"
@@ -337,6 +303,48 @@ _BUILD_OVERRIDE = (
 )
 
 
+def fetch_descriptions() -> dict[str, dict[str, str]]:
+    try:
+        endpoint = f"{_GITHUB_RAW}/{GITHUB_REPO}/{GITHUB_BRANCH}/{GITHUB_DESCRIPTIONS_PATH}"
+        response = requests.get(endpoint, timeout=5)
+        response.raise_for_status()
+        return dict(yaml.safe_load(response.text) or {})
+    except Exception:
+        return {}
+
+
+def download_gitignore_template() -> str:
+    endpoint = f"{_GITHUB_RAW}/{GITHUB_REPO}/{GITHUB_BRANCH}/{GITHUB_GITIGNORE_PATH}"
+    response = requests.get(endpoint, timeout=10)
+    response.raise_for_status()
+    return str(response.text)
+
+
+def is_docker_running() -> bool:
+    try:
+        result = subprocess.run(["docker", "info"], capture_output=True, timeout=5)
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def is_docker_compose_configured(project: Path) -> bool:
+    return (project / "docker-compose.yml").is_file()
+
+
+def download_docker_compose(project: Path) -> None:
+    endpoint = f"{_GITHUB_RAW}/{GITHUB_REPO}/{GITHUB_BRANCH}/{GITHUB_DOCKER_COMPOSE_PATH}"
+    response = requests.get(endpoint, timeout=10)
+    response.raise_for_status()
+    (project / "docker-compose.yml").write_text(response.text)
+
+
+def remove_docker_compose(project: Path) -> None:
+    target = project / "docker-compose.yml"
+    if target.is_file():
+        target.unlink()
+
+
 def is_gitignore_configured(project: Path) -> bool:
     gitignore = project / ".gitignore"
     return gitignore.is_file() and GITIGNORE_MARKER in gitignore.read_text()
@@ -346,7 +354,7 @@ def generate_gitignore(project: Path) -> None:
     gitignore = project / ".gitignore"
     if gitignore.is_file() and GITIGNORE_MARKER in gitignore.read_text():
         return
-    gitignore.write_text(_GITIGNORE_CONTENT)
+    gitignore.write_text(download_gitignore_template())
 
 
 def remove_gitignore(project: Path) -> None:
@@ -395,6 +403,24 @@ def run_uninstall_mysql(project: Path) -> None:
     revert_classpath(properties, keys=_MYSQL_CLASSPATH_KEYS)
 
 
+def _print_section(console: Console, heading: str = "", description: str = "") -> None:
+    if heading:
+        body = f"\n  [bold]>> {heading}[/bold]"
+        if description:
+            body += f"\n\n  {description.strip()}"
+        body += "\n"
+    else:
+        body = "\n  Select an option to install:\n"
+    console.print(
+        Panel(
+            body,
+            title="[bold cyan]NetBeans — CCT Setup[/bold cyan]",
+            border_style="cyan",
+            title_align="left",
+        )
+    )
+
+
 def _ask_project_path() -> Path | None:
     cwd = Path.cwd()
     raw = questionary.text(f"NetBeans project path (. = {cwd}):", style=_STYLE).ask()
@@ -415,7 +441,8 @@ def _nav_choice() -> str:
     return result or "quit"
 
 
-def _database_flow(console: Console) -> str:
+def _database_flow(console: Console, description: str = "") -> str:
+    _print_section(console, "MySQL Database", description)
     project = _ask_project_path()
     if project is None:
         return "quit"
@@ -462,7 +489,8 @@ def _database_flow(console: Console) -> str:
     return _nav_choice()
 
 
-def _junit5_flow(console: Console) -> str:
+def _junit5_flow(console: Console, description: str = "") -> str:
+    _print_section(console, "JUnit 5", description)
     project = _ask_project_path()
     if project is None:
         return "quit"
@@ -509,7 +537,8 @@ def _junit5_flow(console: Console) -> str:
     return _nav_choice()
 
 
-def _gitignore_flow(console: Console) -> str:
+def _gitignore_flow(console: Console, description: str = "") -> str:
+    _print_section(console, ".gitignore", description)
     project = _ask_project_path()
     if project is None:
         return "quit"
@@ -549,7 +578,53 @@ def _gitignore_flow(console: Console) -> str:
     return _nav_choice()
 
 
-def _templates_flow(console: Console) -> str:
+def _docker_compose_flow(console: Console, description: str = "") -> str:
+    _print_section(console, "Docker Compose", description)
+    if not is_docker_running():
+        console.print("\n  [red]✗[/red]  Docker is not running. Start Docker and try again.\n")
+        return _nav_choice()
+    project = _ask_project_path()
+    if project is None:
+        return "quit"
+    configured = is_docker_compose_configured(project)
+    status_text = "[green]● configured[/green]" if configured else "[yellow]○ not configured[/yellow]"
+    console.print(
+        Panel(
+            f"\n  [bold]Docker Compose[/bold]   {status_text}\n",
+            title=f"[bold cyan]{project.name}[/bold cyan]",
+            border_style="cyan",
+            title_align="left",
+        )
+    )
+    if configured:
+        choices = [
+            questionary.Choice("Remove docker-compose.yml", value="remove"),
+            questionary.Choice("Back to menu", value="back"),
+            questionary.Choice("Quit", value="quit"),
+        ]
+    else:
+        choices = [
+            questionary.Choice("Add docker-compose.yml", value="add"),
+            questionary.Choice("Back to menu", value="back"),
+            questionary.Choice("Quit", value="quit"),
+        ]
+    action = questionary.select("", choices=choices, style=_STYLE).ask()
+    if action in (None, "back"):
+        return "back"
+    if action == "quit":
+        return "quit"
+    if action == "add":
+        with console.status("[cyan]Downloading docker-compose.yml...[/cyan]"):
+            download_docker_compose(project)
+        console.print("\n  [green]✓[/green]  docker-compose.yml added.\n")
+    else:
+        remove_docker_compose(project)
+        console.print("\n  [green]✓[/green]  docker-compose.yml removed.\n")
+    return _nav_choice()
+
+
+def _templates_flow(console: Console, description: str = "") -> str:
+    _print_section(console, "NetBeans Templates", description)
     cwd = Path.cwd()
     raw = questionary.text(f"Save Template.zip to (. = {cwd}):", default=".", style=_STYLE).ask()
     if raw is None:
@@ -573,39 +648,40 @@ def _templates_flow(console: Console) -> str:
     return _nav_choice()
 
 
+def _run_flow(console: Console, choice: str, descriptions: dict[str, dict[str, str]]) -> str:
+    description = descriptions.get(choice, {}).get("description", "")
+    if choice == "database":
+        return _database_flow(console, description)
+    if choice == "junit5":
+        return _junit5_flow(console, description)
+    if choice == "docker":
+        return _docker_compose_flow(console, description)
+    if choice == "gitignore":
+        return _gitignore_flow(console, description)
+    return _templates_flow(console, description)
+
+
 def main() -> None:
     console = Console()
-    console.print(
-        Panel(
-            "[bold cyan]NetBeans — CCT Setup[/bold cyan]",
-            border_style="cyan",
-            expand=False,
-        )
-    )
+    descriptions = fetch_descriptions()
     try:
         while True:
+            _print_section(console)
             choice = questionary.select(
                 "Select an option:",
                 choices=[
-                    questionary.Choice("[1] Database", value="database"),
+                    questionary.Choice("[1] MySQL Database", value="database"),
                     questionary.Choice("[2] JUnit 5", value="junit5"),
-                    questionary.Choice("[3] .gitignore", value="gitignore"),
-                    questionary.Choice("[4] Templates", value="templates"),
+                    questionary.Choice("[3] Docker Compose", value="docker"),
+                    questionary.Choice("[4] .gitignore", value="gitignore"),
+                    questionary.Choice("[5] NetBeans Templates", value="templates"),
                     questionary.Choice("Quit", value="quit"),
                 ],
                 style=_STYLE,
             ).ask()
             if choice in (None, "quit"):
                 break
-            if choice == "database":
-                result = _database_flow(console)
-            elif choice == "junit5":
-                result = _junit5_flow(console)
-            elif choice == "gitignore":
-                result = _gitignore_flow(console)
-            else:
-                result = _templates_flow(console)
-            if result == "quit":
+            if _run_flow(console, choice, descriptions) == "quit":
                 break
     except KeyboardInterrupt:
         console.print("\n[dim]Cancelled.[/dim]")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -14,17 +15,23 @@ from setup import (
     MYSQL_JAR_NAME,
     add_file_references,
     clean_path,
+    download_docker_compose,
+    download_gitignore_template,
     download_jars,
     download_mysql_jar,
+    fetch_descriptions,
     fetch_jar_names,
     generate_gitignore,
     inject_build_xml,
+    is_docker_compose_configured,
+    is_docker_running,
     is_gitignore_configured,
     is_junit5_configured,
     is_mysql_configured,
     main,
     modify_classpath,
     remove_build_xml_override,
+    remove_docker_compose,
     remove_file_references,
     remove_gitignore,
     remove_jar_directory,
@@ -847,36 +854,57 @@ class TestIsGitignoreConfigured:
         assert is_gitignore_configured(project)
 
 
+_FAKE_GITIGNORE = f"{GITIGNORE_MARKER}\n*.class\n/build/\nnbproject/private/\n"
+
+
+class TestDownloadGitignoreTemplate:
+    @patch("requests.get")
+    def test_returns_template_content(self, mock_get: MagicMock) -> None:
+        mock_get.return_value.text = _FAKE_GITIGNORE
+        mock_get.return_value.raise_for_status = MagicMock()
+        assert GITIGNORE_MARKER in download_gitignore_template()
+
+    @patch("requests.get")
+    def test_fetches_from_correct_url(self, mock_get: MagicMock) -> None:
+        mock_get.return_value.text = _FAKE_GITIGNORE
+        mock_get.return_value.raise_for_status = MagicMock()
+        download_gitignore_template()
+        endpoint = mock_get.call_args[0][0]
+        assert "templates/gitignore" in endpoint
+
+
 class TestGenerateGitignore:
     def test_creates_gitignore_file(self, project: Path) -> None:
-        generate_gitignore(project)
+        with patch("setup.download_gitignore_template", return_value=_FAKE_GITIGNORE):
+            generate_gitignore(project)
         assert (project / ".gitignore").is_file()
 
     def test_file_contains_marker(self, project: Path) -> None:
-        generate_gitignore(project)
+        with patch("setup.download_gitignore_template", return_value=_FAKE_GITIGNORE):
+            generate_gitignore(project)
         assert GITIGNORE_MARKER in (project / ".gitignore").read_text()
 
-    def test_file_contains_java_patterns(self, project: Path) -> None:
-        generate_gitignore(project)
-        content = (project / ".gitignore").read_text()
-        assert "*.class" in content
-        assert "/build/" in content
-
-    def test_file_contains_netbeans_patterns(self, project: Path) -> None:
-        generate_gitignore(project)
-        content = (project / ".gitignore").read_text()
-        assert "nbproject/private/" in content
+    def test_file_contains_downloaded_content(self, project: Path) -> None:
+        with patch("setup.download_gitignore_template", return_value=_FAKE_GITIGNORE):
+            generate_gitignore(project)
+        assert "*.class" in (project / ".gitignore").read_text()
 
     def test_idempotent(self, project: Path) -> None:
-        generate_gitignore(project)
-        generate_gitignore(project)
-        content = (project / ".gitignore").read_text()
-        assert content.count(GITIGNORE_MARKER) == 1
+        with patch("setup.download_gitignore_template", return_value=_FAKE_GITIGNORE):
+            generate_gitignore(project)
+            generate_gitignore(project)
+        assert (project / ".gitignore").read_text().count(GITIGNORE_MARKER) == 1
+
+    def test_does_not_download_when_already_configured(self, project: Path) -> None:
+        (project / ".gitignore").write_text(_FAKE_GITIGNORE)
+        with patch("setup.download_gitignore_template") as mock_dl:
+            generate_gitignore(project)
+        mock_dl.assert_not_called()
 
 
 class TestRemoveGitignore:
     def test_removes_gitignore_when_marker_present(self, project: Path) -> None:
-        generate_gitignore(project)
+        (project / ".gitignore").write_text(_FAKE_GITIGNORE)
         remove_gitignore(project)
         assert not (project / ".gitignore").exists()
 
@@ -925,3 +953,126 @@ class TestMainGitignore:
             mock_q.text.return_value.ask.return_value = str(project)
             main()
         mock_remove.assert_called_once_with(project)
+
+
+class TestFetchDescriptions:
+    @patch("requests.get")
+    def test_returns_dict_with_known_keys(self, mock_get: MagicMock) -> None:
+        mock_get.return_value.text = "junit5:\n  title: JUnit 5\n  description: desc\n"
+        mock_get.return_value.raise_for_status = MagicMock()
+        result = fetch_descriptions()
+        assert "junit5" in result
+
+    @patch("requests.get")
+    def test_returns_empty_dict_on_network_error(self, mock_get: MagicMock) -> None:
+        mock_get.side_effect = Exception("network error")
+        assert fetch_descriptions() == {}
+
+
+class TestIsDockerRunning:
+    def test_returns_true_when_docker_info_succeeds(self) -> None:
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            assert is_docker_running() is True
+
+    def test_returns_false_when_docker_info_fails(self) -> None:
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 1
+            assert is_docker_running() is False
+
+    def test_returns_false_when_docker_not_installed(self) -> None:
+        with patch("subprocess.run", side_effect=FileNotFoundError):
+            assert is_docker_running() is False
+
+    def test_returns_false_on_timeout(self) -> None:
+        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("docker", 5)):
+            assert is_docker_running() is False
+
+
+class TestIsDockerComposeConfigured:
+    def test_returns_false_when_file_missing(self, project: Path) -> None:
+        assert is_docker_compose_configured(project) is False
+
+    def test_returns_true_when_file_exists(self, project: Path) -> None:
+        (project / "docker-compose.yml").write_text("services:\n")
+        assert is_docker_compose_configured(project) is True
+
+
+class TestDownloadDockerCompose:
+    @patch("requests.get")
+    def test_creates_docker_compose_file(self, mock_get: MagicMock, project: Path) -> None:
+        mock_get.return_value.text = "services:\n  mysql:\n"
+        mock_get.return_value.raise_for_status = MagicMock()
+        download_docker_compose(project)
+        assert (project / "docker-compose.yml").is_file()
+
+    @patch("requests.get")
+    def test_writes_downloaded_content(self, mock_get: MagicMock, project: Path) -> None:
+        mock_get.return_value.text = "services:\n  mysql:\n"
+        mock_get.return_value.raise_for_status = MagicMock()
+        download_docker_compose(project)
+        assert "services:" in (project / "docker-compose.yml").read_text()
+
+    @patch("requests.get")
+    def test_fetches_from_correct_url(self, mock_get: MagicMock, project: Path) -> None:
+        mock_get.return_value.text = "services:\n"
+        mock_get.return_value.raise_for_status = MagicMock()
+        download_docker_compose(project)
+        endpoint = mock_get.call_args[0][0]
+        assert "libs/docker/docker-compose.yml" in endpoint
+
+
+class TestRemoveDockerCompose:
+    def test_removes_file_when_present(self, project: Path) -> None:
+        (project / "docker-compose.yml").write_text("services:\n")
+        remove_docker_compose(project)
+        assert not (project / "docker-compose.yml").exists()
+
+    def test_noop_when_file_missing(self, project: Path) -> None:
+        remove_docker_compose(project)
+
+
+class TestMainDockerCompose:
+    def test_calls_download_docker_compose(self, project: Path) -> None:
+        with (
+            patch("setup.Console"),
+            patch("setup.Panel"),
+            patch("setup.questionary") as mock_q,
+            patch("setup.fetch_descriptions", return_value={}),
+            patch("setup.download_docker_compose") as mock_dl,
+            patch("setup.is_docker_running", return_value=True),
+            patch("setup.is_docker_compose_configured", return_value=False),
+        ):
+            mock_q.select.return_value.ask.side_effect = ["docker", "add", "back", "quit"]
+            mock_q.text.return_value.ask.return_value = str(project)
+            main()
+        mock_dl.assert_called_once_with(project)
+
+    def test_calls_remove_docker_compose(self, project: Path) -> None:
+        with (
+            patch("setup.Console"),
+            patch("setup.Panel"),
+            patch("setup.questionary") as mock_q,
+            patch("setup.fetch_descriptions", return_value={}),
+            patch("setup.remove_docker_compose") as mock_rm,
+            patch("setup.is_docker_running", return_value=True),
+            patch("setup.is_docker_compose_configured", return_value=True),
+        ):
+            mock_q.select.return_value.ask.side_effect = ["docker", "remove", "back", "quit"]
+            mock_q.text.return_value.ask.return_value = str(project)
+            main()
+        mock_rm.assert_called_once_with(project)
+
+    def test_shows_error_when_docker_not_running(self, project: Path) -> None:
+        with (
+            patch("setup.Console"),
+            patch("setup.Panel"),
+            patch("setup.questionary") as mock_q,
+            patch("setup.fetch_descriptions", return_value={}),
+            patch("setup.is_docker_running", return_value=False),
+            patch("setup.download_docker_compose") as mock_dl,
+        ):
+            mock_q.select.return_value.ask.side_effect = ["docker", "back", "quit"]
+            mock_q.text.return_value.ask.return_value = str(project)
+            main()
+        mock_dl.assert_not_called()

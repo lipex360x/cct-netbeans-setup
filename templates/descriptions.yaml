@@ -1,0 +1,34 @@
+database:
+  title: MySQL Database
+  description: >
+    Installs the MySQL Connector JAR into lib/mysql/ and configures the
+    project classpath so NetBeans can resolve the driver at compile and
+    run time.
+
+junit5:
+  title: JUnit 5
+  description: >
+    Installs 9 JUnit 5 JARs into lib/junit5/ and injects the Ant build
+    override so NetBeans runs tests with the JUnit Platform Launcher
+    instead of the legacy JUnit 4 runner.
+
+docker:
+  title: Docker Compose
+  description: >
+    Adds a docker-compose.yml with a pre-configured MySQL 8.0 container
+    ready for local development. Requires Docker to be running on your
+    machine.
+
+gitignore:
+  title: .gitignore
+  description: >
+    Generates a .gitignore tailored for Java and NetBeans projects,
+    covering compiled classes, build output, IDE files, and package
+    archives.
+
+templates:
+  title: NetBeans Templates
+  description: >
+    Downloads and imports NetBeans settings, theme, and code templates
+    (Java Class, Main Class, JUnit test) to your global NetBeans
+    configuration.

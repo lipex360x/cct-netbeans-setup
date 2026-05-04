@@ -1,0 +1,27 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: cct_database
+    restart: no
+    ports:
+      - "3306:3306"
+    environment:
+      TZ: Europe/Dublin
+      MYSQL_ROOT_PASSWORD: rootpwd
+      MYSQL_DATABASE: cct_db
+      MYSQL_USER: admin
+      MYSQL_PASSWORD: "123"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command:
+      - --default-authentication-plugin=mysql_native_password
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --sql-mode=STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+      - --max_connections=300
+      - --innodb_buffer_pool_size=256M
+      - --log_bin_trust_function_creators=1
+    stop_grace_period: 30s
+
+volumes:
+  mysql_data:

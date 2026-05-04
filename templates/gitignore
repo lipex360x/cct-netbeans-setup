@@ -1,0 +1,36 @@
+# cct-netbeans-setup
+
+# Compiled class files
+*.class
+
+# Build output
+/build/
+/dist/
+/out/
+
+# NetBeans
+nbproject/private/
+nbproject/Makefile-*.mk
+nbproject/Package-*.bash
+nbbuild/
+nbdist/
+
+# Package files
+*.jar
+*.war
+*.ear
+*.nar
+*.zip
+*.tar.gz
+*.rar
+
+# Log files
+*.log
+
+# JVM crash logs
+hs_err_pid*
+
+# IDE files
+.idea/
+*.iml
+.vscode/
