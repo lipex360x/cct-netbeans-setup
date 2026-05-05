@@ -32,6 +32,11 @@ irm https://astral.sh/uv/install.ps1 | iex
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
+**Via pip (alternative):**
+```bash
+pip install uv
+```
+
 > [!TIP]
 > If `uv` is already installed, skip this step.
 
