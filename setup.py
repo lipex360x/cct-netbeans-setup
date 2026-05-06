@@ -256,15 +256,29 @@ _TASKDEF_BLOCK = (
 )
 
 _POST_TEST_BLOCK = """\
-    <concat>
-        <fileset dir="${build.test.results.dir}" includes="*.txt"/>
+    <concat destfile="${java.io.tmpdir}/cct-test-pass.txt" overwrite="true">
+        <fileset dir="${build.test.results.dir}" includes="TEST-*.txt"/>
         <filterchain>
             <linecontainsregexp negate="true">
-                <regexp pattern="^(\\s+at\\s|(org|java|jdk|com\\.sun)\\.|Caused by:)"/>
+                <regexp pattern="^(\\s+at\\s|(org|java|jdk|com\\.sun)\\.|Caused by:|.*FAILED:)"/>
             </linecontainsregexp>
         </filterchain>
     </concat>
-    <echo>For full output (including stack traces), see: ${build.test.results.dir}</echo>
+    <concat destfile="${java.io.tmpdir}/cct-test-fail.txt" overwrite="true">
+        <fileset dir="${build.test.results.dir}" includes="TEST-*.txt"/>
+        <filterchain>
+            <linecontainsregexp>
+                <regexp pattern="FAILED:"/>
+            </linecontainsregexp>
+        </filterchain>
+    </concat>
+    <echo file="${java.io.tmpdir}/cct-test-pass.txt" append="true">${line.separator}</echo>
+    <echo file="${java.io.tmpdir}/cct-test-fail.txt" append="true">${line.separator}</echo>
+    <loadfile srcFile="${java.io.tmpdir}/cct-test-pass.txt" property="cct.test.console.pass"/>
+    <loadfile srcFile="${java.io.tmpdir}/cct-test-fail.txt" property="cct.test.console.fail"/>
+    <echo level="info">${cct.test.console.pass}</echo>
+    <echo level="warning">${cct.test.console.fail}</echo>
+    <echo level="info">For full output (including stack traces), see: ${build.test.results.dir}</echo>
 """
 
 _BUILD_OVERRIDE = (
