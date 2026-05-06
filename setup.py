@@ -255,6 +255,18 @@ _TASKDEF_BLOCK = (
     "</taskdef>\n\n"
 )
 
+_POST_TEST_BLOCK = """\
+    <concat>
+        <fileset dir="${build.test.results.dir}" includes="*.txt"/>
+        <filterchain>
+            <linecontainsregexp negate="true">
+                <regexp pattern="^(\\s+at\\s|(org|java|jdk|com\\.sun)\\.|Caused by:)"/>
+            </linecontainsregexp>
+        </filterchain>
+    </concat>
+    <echo>For full output (including stack traces), see: ${build.test.results.dir}</echo>
+"""
+
 _BUILD_OVERRIDE = (
     _TASKDEF_BLOCK
     + """\
@@ -271,6 +283,9 @@ _BUILD_OVERRIDE = (
             <listener type="legacy-plain" sendSysOut="true" sendSysErr="true"/>
         </testclasses>
     </junitlauncher>
+"""
+    + _POST_TEST_BLOCK
+    + """\
 </target>
 
 """
@@ -285,6 +300,9 @@ _BUILD_OVERRIDE = (
             <listener type="legacy-plain" sendSysOut="true" sendSysErr="true"/>
         </test>
     </junitlauncher>
+"""
+    + _POST_TEST_BLOCK
+    + """\
 </target>
 
 """
@@ -299,7 +317,9 @@ _BUILD_OVERRIDE = (
             <listener type="legacy-plain" sendSysOut="true" sendSysErr="true"/>
         </test>
     </junitlauncher>
-</target>"""
+"""
+    + _POST_TEST_BLOCK
+    + "</target>"
 )
 
 
